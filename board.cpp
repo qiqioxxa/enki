@@ -8,7 +8,7 @@ ChessBoard::ChessBoard(bool standard) {
         tables_initialized = true;
     }
     if (standard) {
-        initialize_bitboards();
+        standard_setup();
         white_king_square = 4;
         black_king_square = 60;
         white_kingside_castle = white_queenside_castle = true;
@@ -16,18 +16,45 @@ ChessBoard::ChessBoard(bool standard) {
     }
 }
 
-bool ChessBoard::make_move(const Move move) {
-    Piece moving_piece = piece_at(move.from());
-    Piece target_piece = piece_at(move.to());
-    execute_pseudo_move(move);
-    update_flags_and_counters(move, moving_piece, target_piece);
-    return true;
+UndoInfo ChessBoard::make_move(const Move move) {
+    UndoInfo info;
+    info.en_passant_square = en_passant_square;
+    info.white_king_square = white_king_square;
+    info.black_king_square = black_king_square;
+    info.castling_rights[0] = white_queenside_castle;
+    info.castling_rights[1] = white_kingside_castle;
+    info.castling_rights[2] = black_queenside_castle;
+    info.castling_rights[3] = black_kingside_castle;
+    info.reversible_moves_count = reversible_moves_count;
+
+    info.moving_bb = bb_index_at(move.from());
+    info.target_bb = bb_index_at(move.to());
+    execute_pseudo_move(move, info.moving_bb, info.target_bb);
+    update_flags_and_counters(move, info.moving_bb, info.target_bb);
+
+    return info;
 }
 bool ChessBoard::make_move(const std::string& str_move) {
     Move move = parse_move(str_move);
     if (!is_pseudo_move(move)) return false;
     if (leaves_king_in_check(move)) return false;
-    return make_move(move);
+    make_move(move);
+    return true;
+}
+void ChessBoard::unmake_move(const Move move, const UndoInfo& info) {
+    en_passant_square = info.en_passant_square;
+    white_king_square = info.white_king_square;
+    black_king_square = info.black_king_square;
+    white_queenside_castle = info.castling_rights[0];
+    white_kingside_castle = info.castling_rights[1];
+    black_queenside_castle = info.castling_rights[2];
+    black_kingside_castle = info.castling_rights[3];
+    reversible_moves_count = info.reversible_moves_count;
+    total_moves_count--;
+
+    white_turn = !white_turn;
+
+    execute_pseudo_move(move, info.moving_bb, info.target_bb);
 }
 
 std::vector<Move> ChessBoard::generate_valid_moves() const {
@@ -49,10 +76,6 @@ void ChessBoard::set_piece(const std::string& notation, Piece piece) {
         white_king_square = square;
     } else if (piece == Piece::B_KING) {
         black_king_square = square;
-    } else if (piece == Piece::W_KING) {
-        white_king_square = -1;
-    } else if (piece == Piece::B_KING) {
-        black_king_square = -1;
     }
 
     if (piece != Piece::EMPTY) {
@@ -134,13 +157,13 @@ bool ChessBoard::is_game_over() const {
     return false;
 }
 
-bool ChessBoard::is_pawn(Piece piece) const {
+bool ChessBoard::is_pawn(Piece piece) {
     return piece == Piece::W_PAWN || piece == Piece::B_PAWN;
 }
-bool ChessBoard::is_king(Piece piece) const {
+bool ChessBoard::is_king(Piece piece) {
     return piece == Piece::W_KING || piece == Piece::B_KING;
 }
-bool ChessBoard::is_rook(Piece piece) const {
+bool ChessBoard::is_rook(Piece piece) {
     return piece == Piece::W_ROOK || piece == Piece::B_ROOK;
 }
 
@@ -228,7 +251,7 @@ void ChessBoard::print_moves() const {
     }
     std::cout << "\n";
 }
-void ChessBoard::perft_divide(int depth) const {
+void ChessBoard::perft_divide(int depth) {
     auto start = std::chrono::high_resolution_clock::now();
     std::vector<Move> moves = generate_valid_moves();
     uint64_t total_nodes = 0;
@@ -236,12 +259,11 @@ void ChessBoard::perft_divide(int depth) const {
     std::cout << "=== perft divide (depth " << depth << ") ===\n";
     
     for (const auto& move : moves) {
-        ChessBoard board_copy = *this;
-        board_copy.make_move(move);
-        uint64_t nodes = board_copy.perft(depth - 1)[0];
+        UndoInfo info = make_move(move);
+        uint64_t nodes = perft(depth - 1)[0];
         total_nodes += nodes;
-        
         std::cout << move.to_string() << ": " << nodes << "\n";
+        unmake_move(move, info);
     }
     
     auto end = std::chrono::high_resolution_clock::now();
@@ -249,7 +271,7 @@ void ChessBoard::perft_divide(int depth) const {
     
     std::cout << "total: " << total_nodes << " (" << duration << " ms)\n";
 }
-std::array<uint64_t, 7> ChessBoard::perft(int depth) const {
+std::array<uint64_t, 7> ChessBoard::perft(int depth) {
     if (depth == 0) return {1, 0, 0, 0, 0, 0, 0};
 
     // nodes, captures, en_passants, castles, promotions, checks, checkmates
@@ -257,20 +279,21 @@ std::array<uint64_t, 7> ChessBoard::perft(int depth) const {
     std::vector<Move> moves = generate_valid_moves();
 
     for (const auto& move : moves) {
-        ChessBoard copy_board = *this;
-        copy_board.make_move(move);
+        UndoInfo info = make_move(move);
         
-        stats[1] += (piece_at(move.to()) != Piece::EMPTY) || move.is_en_passant() ? 1 : 0;
+        stats[1] += info.target_bb != -1 || move.is_en_passant() ? 1 : 0;
         stats[2] += move.is_en_passant() ? 1 : 0;
         stats[3] += move.is_castling() ? 1 : 0;
         stats[4] += move.promotion() ? 1 : 0;
-        stats[5] += copy_board.is_check() ? 1 : 0;
-        stats[6] += copy_board.is_checkmate() ? 1 : 0;
+        stats[5] += is_check() ? 1 : 0;
+        stats[6] += is_checkmate() ? 1 : 0;
 
-        auto move_stats = copy_board.perft(depth-1);
+        auto move_stats = perft(depth-1);
         for (int i = 0; i < 7; i++) {
             stats[i] += move_stats[i];
         }
+
+        unmake_move(move, info);
     }
 
     return stats;
@@ -357,7 +380,7 @@ std::array<uint64_t, 64> ChessBoard::king_attacks;
 std::array<std::array<uint64_t, 512>, 64> ChessBoard::bishop_attacks{};
 std::array<std::array<uint64_t, 4096>, 64> ChessBoard::rook_attacks{};
 
-void ChessBoard::initialize_bitboards() {
+void ChessBoard::standard_setup() {
     for (int i = 8; i < 16; i++) bitboards[0] ^= (1ULL << i);
     bitboards[1] ^= (1ULL << 1); bitboards[1] ^= (1ULL << 6);
     bitboards[2] ^= (1ULL << 2); bitboards[2] ^= (1ULL << 5);
@@ -516,73 +539,69 @@ uint64_t ChessBoard::compute_sliding_attacks_from(int square, const std::array<s
     return attacks;
 }
 
-void ChessBoard::execute_pseudo_move(const Move move) {
-    int moving_bb = bb_index_at(move.from());
-    int captured_bb = bb_index_at(move.to());
-
+void ChessBoard::execute_pseudo_move(const Move move, int moving_bb, int target_bb) const {
+    uint8_t from = move.from(), to = move.to();
     if (move.is_en_passant()) {
-        int captured_pawn_bb = bb_index_at(en_passant_square);
-        bitboards[moving_bb] ^= (1ULL << move.from()) | (1ULL << move.to());
+        int captured_pawn_bb = white_turn ? 6 : 0;
+        bitboards[moving_bb] ^= (1ULL << from) | (1ULL << to);
         bitboards[captured_pawn_bb] ^= (1ULL << en_passant_square);
 
     } else if (move.is_castling()) {
         int rook_from, rook_to;
-        if (move.from() < move.to()) {
-            rook_from = move.from() + 3;
-            rook_to = move.from() + 1;
+        if (from < to) {
+            rook_from = from + 3;
+            rook_to = from + 1;
         } else {
-            rook_from = move.from() - 4;
-            rook_to = move.from() - 1;
+            rook_from = from - 4;
+            rook_to = to - 1;
         }
-        int rook_bb = bb_index_at(rook_from);
-        bitboards[moving_bb] ^= (1ULL << move.from()) | (1ULL << move.to());
+        int rook_bb = white_turn ? 3 : 9;
+        bitboards[moving_bb] ^= (1ULL << from) | (1ULL << to);
         bitboards[rook_bb] ^= (1ULL << rook_from) | (1ULL << rook_to);
 
     } else if (move.promotion() != 0) {
         int promo_bb = piece_to_bb_index(move.promotion(white_turn));
-        bitboards[moving_bb] ^= (1ULL << move.from());
-        bitboards[promo_bb] ^= (1ULL << move.to());
-        if (captured_bb != -1) {
-            bitboards[captured_bb] ^= (1ULL << move.to());
+        bitboards[moving_bb] ^= (1ULL << from);
+        bitboards[promo_bb] ^= (1ULL << to);
+        if (target_bb != -1) {
+            bitboards[target_bb] ^= (1ULL << to);
         }
 
     } else {
-        bitboards[moving_bb] ^= (1ULL << move.from()) | (1ULL << move.to());
-        if (captured_bb != -1) {
-            bitboards[captured_bb] ^= (1ULL << move.to());
+        bitboards[moving_bb] ^= (1ULL << from) | (1ULL << to);
+        if (target_bb != -1) {
+            bitboards[target_bb] ^= (1ULL << to);
         }
     }
 }
-void ChessBoard::update_flags_and_counters(const Move move, Piece moving_piece, Piece target_piece) {
-    if (is_king(moving_piece)) {
-        if (white_turn) {
-            white_king_square = move.to();
-        } else {
-            black_king_square = move.to();
-        }
+void ChessBoard::update_flags_and_counters(const Move move, int moving_bb, int target_bb) {
+    uint8_t from = move.from(), to = move.to();
+    if (moving_bb == 5) {
+        white_king_square = to;
+    } else if (moving_bb == 11) {
+        black_king_square = to;
     }
 
-    if (is_pawn(moving_piece) && abs(move.from() - move.to()) == 16) {
-        en_passant_square = move.to();
+    if ((moving_bb == 0 || moving_bb == 6) && abs(from - to) == 16) {
+        en_passant_square = to;
     } else {
         en_passant_square = -1;
     }
 
-    if (is_king(moving_piece)) {
-        if (white_turn) {
-            white_queenside_castle = false;
-            white_kingside_castle = false;
-        } else {
-            black_queenside_castle = false;
-            black_kingside_castle = false;
-        }
+    if (moving_bb == 5) {
+        white_queenside_castle = false;
+        white_kingside_castle = false;
+    } else if (moving_bb == 11) {
+        black_queenside_castle = false;
+        black_kingside_castle = false;
     }
-    if (move.from() == 0 || move.to() == 0) white_queenside_castle = false;
-    if (move.from() == 7 || move.to() == 7) white_kingside_castle = false;
-    if (move.from() == 56 || move.to() == 56) black_queenside_castle = false;
-    if (move.from() == 63 || move.to() == 63) black_kingside_castle = false;
+    
+    if (from == 0 || to == 0) white_queenside_castle = false;
+    if (from == 7 || to == 7) white_kingside_castle = false;
+    if (from == 56 || to == 56) black_queenside_castle = false;
+    if (from == 63 || to == 63) black_kingside_castle = false;
 
-    if (target_piece != Piece::EMPTY || is_pawn(moving_piece)) {
+    if (target_bb != -1 || moving_bb == 0 || moving_bb == 6) {
         reversible_moves_count = 0;
     } else {
         reversible_moves_count++;
@@ -631,7 +650,7 @@ std::vector<Move> ChessBoard::generate_pseudo_moves() const {
 
             bool is_promotion = is_pawn(piece) && (target / 8 == 7 || target / 8 == 0);
 
-            bool is_ep = is_pawn(piece_at(square)) && 
+            bool is_ep = is_pawn(piece) && 
                         en_passant_square != -1 && 
                         target == en_passant_square + (white_turn ? 8 : -8) &&
                         abs(square % 8 - en_passant_square % 8) == 1;
@@ -787,11 +806,15 @@ bool ChessBoard::is_pseudo_move(const Move move) const {
     return false;
 }
 bool ChessBoard::leaves_king_in_check(const Move move) const {
+    int moving_bb = bb_index_at(move.from());
+    int target_bb = bb_index_at(move.to());
     ChessBoard test_board = *this;
-    Piece moving_piece = piece_at(move.from());
-    Piece target_piece = piece_at(move.to());
-    test_board.execute_pseudo_move(move);
-    test_board.update_flags_and_counters(move, moving_piece, target_piece);
+    test_board.execute_pseudo_move(move, moving_bb, target_bb);
+    if (moving_bb == 5) {
+        test_board.white_king_square = move.to();
+    } else if (moving_bb == 11) {
+        test_board.black_king_square = move.to();
+    }
     test_board.set_turn(white_turn);
     return test_board.is_check();
 }
@@ -805,8 +828,7 @@ int ChessBoard::bb_index_at(int square) const {
     return -1;
 }
 Piece ChessBoard::piece_at(int square) const {
-    int bb_index = bb_index_at(square);
-    return bb_index_to_piece(bb_index);
+    return bb_index_to_piece(bb_index_at(square));
 }
 int ChessBoard::piece_to_bb_index(Piece piece) const {
     switch (piece) {
@@ -853,10 +875,6 @@ bool ChessBoard::is_current_player_piece(Piece piece) const {
 bool ChessBoard::is_square_attacked(int square, bool by_white) const {
     uint64_t occupied = get_occupancy();
 
-    if (pawn_attacks[by_white ? 1 : 0][square] & get_pawns(by_white)) return true;
-    if (knight_attacks[square] & get_knights(by_white)) return true;
-    if (king_attacks[square] & get_kings(by_white)) return true;
-
     uint64_t bishop_mask = bishop_masks[square];
     uint64_t bishop_blockers = occupied & bishop_mask;
     uint64_t bishop_index = (bishop_blockers * bishop_magics[square]) >> (64 - bishop_shifts[square]);
@@ -869,9 +887,11 @@ bool ChessBoard::is_square_attacked(int square, bool by_white) const {
     uint64_t rook_index = (rook_blockers * rook_magics[square]) >> (64 - rook_shifts[square]);
     uint64_t rook_valid_targets = rook_attacks[square][rook_index];
     
-    if (rook_valid_targets & (get_rooks(by_white) | get_queens(by_white))) {
-        return true;
-    }
+    if (rook_valid_targets & (get_rooks(by_white) | get_queens(by_white))) return true;
+ 
+    if (pawn_attacks[by_white ? 1 : 0][square] & get_pawns(by_white)) return true;
+    if (knight_attacks[square] & get_knights(by_white)) return true;
+    if (king_attacks[square] & get_kings(by_white)) return true;
     
     return false;
 }

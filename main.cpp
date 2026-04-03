@@ -1,10 +1,12 @@
 #include "board.h"
 
 int main() {
-    /*ChessBoard board1(true);
+    /*ChessBoard board1;
+    //board1.set_piece("e5", Piece::W_BISHOP);
+    //board1.set_piece("b5", Piece::W_KNIGHT);
     board1.print_moves();
     board1.print_board();
-    while (!board1.is_checkmate() && !board1.is_stalemate()) {
+    while (!board1.is_game_over()) {
         std::string human_move;
         bool is_executed = false;
         while (!is_executed) {
@@ -14,7 +16,7 @@ int main() {
         }
         board1.print_moves();
         board1.print_board();
-    }*/
+    }
     for (int i = 1; i <= 6; i++) {
         ChessBoard board;
 
@@ -36,4 +38,7 @@ int main() {
             board.perft_divide(i);
         }
     }
+    return 0;*/
+    ChessBoard board;
+    board.perft_divide(6);
 }

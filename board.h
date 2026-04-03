@@ -24,9 +24,9 @@ struct Move {
                ((castle ? 1 : 0) << 15);
     }
 
-    int from() const { return data & 0x3F; }
-    int to() const { return (data >> 6) & 0x3F; }
-    int promotion() const { return (data >> 12) & 0x3; }
+    uint8_t from() const { return data & 0x3F; }
+    uint8_t to() const { return (data >> 6) & 0x3F; }
+    uint8_t promotion() const { return (data >> 12) & 0x3; }
     Piece promotion(bool is_white) const {
         int promo_code = promotion();
         switch (promo_code) {
@@ -54,12 +54,23 @@ struct Move {
     }
 };
 
+struct UndoInfo {
+    uint8_t en_passant_square;
+    uint8_t white_king_square;
+    uint8_t black_king_square;
+    bool castling_rights[4];
+    uint8_t reversible_moves_count;
+    int8_t moving_bb;
+    int8_t target_bb;
+};
+
 class ChessBoard {
 public:
     ChessBoard(bool standard = true);
 
-    bool make_move(const Move move);
+    UndoInfo make_move(const Move move);
     bool make_move(const std::string& str_move);
+    void unmake_move(const Move move, const UndoInfo& info);
 
     std::vector<Move> generate_valid_moves() const;
 
@@ -85,25 +96,25 @@ public:
     bool is_fifty_moves_rule() const;
     bool is_game_over() const;
 
-    bool is_pawn(Piece piece) const;
-    bool is_king(Piece piece) const;
-    bool is_rook(Piece piece) const;
+    static bool is_pawn(Piece piece);
+    static bool is_king(Piece piece);
+    static bool is_rook(Piece piece);
 
     void print_board(bool flipping = false) const;
     void print_moves() const;
-    void perft_divide(int depth) const;
-    std::array<uint64_t, 7> perft(int depth) const;
+    void perft_divide(int depth);
+    std::array<uint64_t, 7> perft(int depth);
 
     static int notation_to_square(const std::string& notation);
     static std::string square_to_notation(int square);
     static int pop_lsb(uint64_t& bb);
     
 private:
-    std::array<uint64_t, 12> bitboards{};
+    mutable std::array<uint64_t, 12> bitboards{};
     bool white_turn = true;
     int en_passant_square = -1;
-    int white_king_square = -1;
-    int black_king_square = -1;
+    mutable int white_king_square = -1;
+    mutable int black_king_square = -1;
     bool white_queenside_castle = false;
     bool white_kingside_castle = false;
     bool black_queenside_castle = false;
@@ -127,7 +138,7 @@ private:
     static inline bool tables_initialized = false;
 
 
-    void initialize_bitboards();
+    void standard_setup();
     static void initialize_masks();
     static void initialize_attack_tables();
     static uint64_t compute_pawn_pushes_from(int square, bool white);
@@ -136,8 +147,8 @@ private:
     static uint64_t compute_king_attacks_from(int square);
     static uint64_t compute_sliding_attacks_from(int square, const std::array<std::pair<int, int>, 4>& directions, uint64_t blockers);
 
-    void execute_pseudo_move(const Move move);
-    void update_flags_and_counters(const Move move, Piece moving_piece, Piece target_piece);
+    inline void execute_pseudo_move(const Move move, int moving_bb, int target_bb) const;
+    void update_flags_and_counters(const Move move, int moving_bb, int target_bb);
 
     std::vector<Move> generate_pseudo_moves() const;
     uint64_t generate_pawn_moves_from(int square, bool white) const;
