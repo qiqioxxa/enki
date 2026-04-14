@@ -1,10 +1,28 @@
 #pragma once
 #include <array>
 #include <cstdint>
+#include <cmath>
+
 
 class AttackTables {
 public:
     static void init();
+
+    static inline uint64_t bishop_attacks(int square, uint64_t occupancy) {
+        uint64_t mask = bishop_masks[square];
+        uint64_t blockers = occupancy & mask;
+        uint64_t index = (blockers * bishop_magics[square]) >> (64 - bishop_shifts[square]);
+        return bishop_attacks_[square][index];
+    }
+    static inline uint64_t rook_attacks(int square, uint64_t occupancy) {
+        uint64_t mask = rook_masks[square];
+        uint64_t blockers = occupancy & mask;
+        uint64_t index = (blockers * rook_magics[square]) >> (64 - rook_shifts[square]);
+        return rook_attacks_[square][index];
+    }
+
+
+    static inline bool initialized = false;
 
     static constexpr inline std::array<uint64_t, 64> bishop_magics = {
         0xFFEDF9FD7CFCFFFFull, 0xFC0962854A77F576ull, 0x5822022042000000ull, 0x2CA804A100200020ull,
@@ -53,33 +71,113 @@ public:
         6, 5, 5, 5, 5, 5, 5, 6
     };
     static constexpr inline std::array<int, 64> rook_shifts = {
-    12, 11, 11, 11, 11, 11, 11, 12,
-    11, 10, 10, 10, 10, 10, 10, 11,
-    11, 10, 10, 10, 10, 10, 10, 11,
-    11, 10, 10, 10, 10, 10, 10, 11,
-    11, 10, 10, 10, 10, 10, 10, 11,
-    11, 10, 10, 10, 10, 10, 10, 11,
-    11, 10, 10, 10, 10, 10, 10, 11,
-    12, 11, 11, 11, 11, 11, 11, 12
-};
-
-    static inline std::array<uint64_t, 64> bishop_masks;
-    static inline std::array<uint64_t, 64> rook_masks;
+        12, 11, 11, 11, 11, 11, 11, 12,
+        11, 10, 10, 10, 10, 10, 10, 11,
+        11, 10, 10, 10, 10, 10, 10, 11,
+        11, 10, 10, 10, 10, 10, 10, 11,
+        11, 10, 10, 10, 10, 10, 10, 11,
+        11, 10, 10, 10, 10, 10, 10, 11,
+        11, 10, 10, 10, 10, 10, 10, 11,
+        12, 11, 11, 11, 11, 11, 11, 12
+    };
+    static constexpr inline std::array<uint64_t, 64> bishop_masks = []() {
+        std::array<uint64_t, 64> masks{};
+        for (int square = 0; square < 64; square++) {
+            int rank = square / 8, file = square % 8;
+            uint64_t mask = 0;
+            for (int r = rank + 1, f = file + 1; r < 7 && f < 7; r++, f++) mask |= (1ULL << (r * 8 + f));
+            for (int r = rank - 1, f = file - 1; r > 0 && f > 0; r--, f--) mask |= (1ULL << (r * 8 + f));
+            for (int r = rank + 1, f = file - 1; r < 7 && f > 0; r++, f--) mask |= (1ULL << (r * 8 + f));
+            for (int r = rank - 1, f = file + 1; r > 0 && f < 7; r--, f++) mask |= (1ULL << (r * 8 + f));
+            masks[square] = mask;
+        }
+        return masks;
+    }();
+    static constexpr inline std::array<uint64_t, 64> rook_masks = []() {
+        std::array<uint64_t, 64> masks{};
+        for (int square = 0; square < 64; square++) {
+            int rank = square / 8, file = square % 8;
+            uint64_t mask = 0;            
+            for (int r = rank + 1; r < 7; r++) mask |= (1ULL << (r * 8 + file));
+            for (int r = rank - 1; r > 0; r--) mask |= (1ULL << (r * 8 + file));
+            for (int f = file + 1; f < 7; f++) mask |= (1ULL << (rank * 8 + f));
+            for (int f = file - 1; f > 0; f--) mask |= (1ULL << (rank * 8 + f));
+            masks[square] = mask;
+        }
+        return masks;
+    }();
+    
     static inline std::array<std::array<uint64_t, 64>, 2> pawn_pushes;
     static inline std::array<std::array<uint64_t, 64>, 2> pawn_attacks;
     static inline std::array<uint64_t, 64> knight_attacks;
     static inline std::array<uint64_t, 64> king_attacks;
-    static inline std::array<std::array<uint64_t, 512>, 64> bishop_attacks;
-    static inline std::array<std::array<uint64_t, 4096>, 64> rook_attacks;
-    
-    static inline bool initialized = false;
+    static inline std::array<std::array<uint64_t, 512>, 64> bishop_attacks_;
+    static inline std::array<std::array<uint64_t, 4096>, 64> rook_attacks_;
+
+    static constexpr inline std::array<std::array<uint64_t, 64>, 64> line_bb = []() {
+        std::array<std::array<uint64_t, 64>, 64> lines{};
+        for (int s1 = 0; s1 < 64; s1++) {
+            for (int s2 = s1 + 1; s2 < 64; s2++) {
+                int r1 = s1 / 8, f1 = s1 % 8;
+                int r2 = s2 / 8, f2 = s2 % 8;
+                int dr = r2 - r1, df = f2 - f1;
+
+                if (dr != 0 && df != 0 && dr != df && dr != -df) continue;
+
+                int r_step = (dr == 0) ? 0 : (dr > 0 ? 1 : -1);
+                int f_step = (df == 0) ? 0 : (df > 0 ? 1 : -1);
+
+                int r_start = r1, f_start = f1;
+                while (r_start - r_step >= 0 && r_start - r_step <= 7 && 
+                       f_start - f_step >= 0 && f_start - f_step <= 7) {
+                    r_start -= r_step;
+                    f_start -= f_step;
+                }
+                
+                uint64_t line = 0;
+                while (r_start >= 0 && r_start <= 7 && f_start >= 0 && f_start <= 7) {
+                    line |= (1ULL << (r_start * 8 + f_start));
+                    r_start += r_step;
+                    f_start += f_step;
+                }
+
+                lines[s1][s2] = lines[s2][s1] = line;
+            }
+        }
+        return lines;
+    }();
+    static constexpr inline std::array<std::array<uint64_t, 64>, 64> between_bb = []() {
+        std::array<std::array<uint64_t, 64>, 64> betweens{};
+        for (int s1 = 0; s1 < 64; s1++) {
+            for (int s2 = s1 + 1; s2 < 64; s2++) {
+                int r1 = s1 / 8, f1 = s1 % 8;
+                int r2 = s2 / 8, f2 = s2 % 8;
+                int dr = r2 - r1, df = f2 - f1;
+
+                if (dr != 0 && df != 0 && dr != df && dr != -df) continue;
+
+                int r_step = (dr == 0) ? 0 : (dr > 0 ? 1 : -1);
+                int f_step = (df == 0) ? 0 : (df > 0 ? 1 : -1);
+
+                int r_start = r1 + r_step, f_start = f1 + f_step;
+                
+                uint64_t between = 0;
+                while (r_start != r2 || f_start != f2) {
+                    between |= (1ULL << (r_start * 8 + f_start));
+                    r_start += r_step;
+                    f_start += f_step;
+                }
+
+                betweens[s1][s2] = betweens[s2][s1] = between;
+            }
+        }
+        return betweens;
+    }();
 
 private:
-    static void initialize_masks();
-
     static uint64_t compute_pawn_pushes_from(int square, bool white);
     static uint64_t compute_pawn_attacks_from(int square, bool white);
     static uint64_t compute_knight_attacks_from(int square);
     static uint64_t compute_king_attacks_from(int square);
-    static uint64_t compute_sliding_attacks_from(int square, const std::array<std::pair<int, int>, 4>& directions, uint64_t blockers);
+    static uint64_t compute_sliding_attacks_from(int square, const std::array<std::pair<int, int>, 4>& directions, uint64_t occupancy);
 };

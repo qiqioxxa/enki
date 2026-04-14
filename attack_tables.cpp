@@ -12,8 +12,6 @@ void AttackTables::init() {
         king_attacks[square] = compute_king_attacks_from(square);
     }
 
-    initialize_masks();
-
     const std::array<std::pair<int, int>, 4> bishop_dirs = {{ {-1, -1}, {-1, 1}, {1, -1}, {1, 1} }};
     const std::array<std::pair<int, int>, 4> rook_dirs = {{ {-1, 0}, {1, 0}, {0, -1}, {0, 1} }};
     
@@ -23,7 +21,7 @@ void AttackTables::init() {
         
         do {
             uint64_t index = (cur_blockers * bishop_magics[square]) >> (64 - bishop_shifts[square]);
-            bishop_attacks[square][index] = compute_sliding_attacks_from(square, bishop_dirs, cur_blockers);
+            bishop_attacks_[square][index] = compute_sliding_attacks_from(square, bishop_dirs, cur_blockers);
             cur_blockers = (cur_blockers - mask) & mask;
         } while (cur_blockers != 0);
         
@@ -32,32 +30,15 @@ void AttackTables::init() {
         
         do {
             uint64_t index = (cur_blockers * rook_magics[square]) >> (64 - rook_shifts[square]);
-            rook_attacks[square][index] = compute_sliding_attacks_from(square, rook_dirs, cur_blockers);
+            rook_attacks_[square][index] = compute_sliding_attacks_from(square, rook_dirs, cur_blockers);
             cur_blockers = (cur_blockers - mask) & mask;
         } while (cur_blockers != 0);
     }
+
+    initialized = true;
 }
 
 // PRIVATE
-
-void AttackTables::initialize_masks() {
-    for (int square = 0; square < 64; square++) {
-        uint64_t bishop_mask = 0, rook_mask = 0;
-        int rank = square / 8, file = square % 8;
-        
-        for (int r = rank + 1, f = file + 1; r < 7 && f < 7; r++, f++) bishop_mask |= (1ULL << (r * 8 + f));
-        for (int r = rank - 1, f = file - 1; r > 0 && f > 0; r--, f--) bishop_mask |= (1ULL << (r * 8 + f));
-        for (int r = rank + 1, f = file - 1; r < 7 && f > 0; r++, f--) bishop_mask |= (1ULL << (r * 8 + f));
-        for (int r = rank - 1, f = file + 1; r > 0 && f < 7; r--, f++) bishop_mask |= (1ULL << (r * 8 + f));
-        bishop_masks[square] = bishop_mask;
-        
-        for (int r = rank + 1; r < 7; r++) rook_mask |= (1ULL << (r * 8 + file));
-        for (int r = rank - 1; r > 0; r--) rook_mask |= (1ULL << (r * 8 + file));
-        for (int f = file + 1; f < 7; f++) rook_mask |= (1ULL << (rank * 8 + f));
-        for (int f = file - 1; f > 0; f--) rook_mask |= (1ULL << (rank * 8 + f));
-        rook_masks[square] = rook_mask;
-    }
-}
 
 uint64_t AttackTables::compute_pawn_pushes_from(int square, bool white) {
     uint64_t pushes = 0;
@@ -111,8 +92,8 @@ uint64_t AttackTables::compute_knight_attacks_from(int square) {
     int file = square % 8;
     for (int target = 0; target < 64; target++) {
         if (target == square) continue;
-        int rank_diff = abs(target / 8 - rank);
-        int file_diff = abs(target % 8 - file);
+        int rank_diff = std::abs(target / 8 - rank);
+        int file_diff = std::abs(target % 8 - file);
         if ((rank_diff == 1 && file_diff == 2) || (rank_diff == 2 && file_diff == 1)) {
             attacks |= (1ULL << target);
         }
@@ -125,15 +106,15 @@ uint64_t AttackTables::compute_king_attacks_from(int square) {
     int file = square % 8;
     for (int target = 0; target < 64; target++) {
         if (target == square) continue;
-        int rank_diff = abs(target / 8 - rank);
-        int file_diff = abs(target % 8 - file);
+        int rank_diff = std::abs(target / 8 - rank);
+        int file_diff = std::abs(target % 8 - file);
         if (rank_diff <= 1 && file_diff <= 1) {
             attacks |= (1ULL << target);
         }
     }
     return attacks;
 }
-uint64_t AttackTables::compute_sliding_attacks_from(int square, const std::array<std::pair<int, int>, 4>& directions, uint64_t blockers) {
+uint64_t AttackTables::compute_sliding_attacks_from(int square, const std::array<std::pair<int, int>, 4>& directions, uint64_t occupancy) {
     uint64_t attacks = 0;
     int rank = square / 8;
     int file = square % 8;
@@ -145,7 +126,7 @@ uint64_t AttackTables::compute_sliding_attacks_from(int square, const std::array
             f += dir.second;
             if (r < 0 || r > 7 || f < 0 || f > 7) break;
             attacks |= (1ULL << (r * 8 + f));
-            if (blockers & (1ULL << (r * 8 + f))) break;
+            if (occupancy & (1ULL << (r * 8 + f))) break;
         }
     }
     return attacks;
