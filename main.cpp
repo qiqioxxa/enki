@@ -16,16 +16,32 @@ int main() {
         }
         board1.print_moves();
         board1.print_board();
-    }
-    for (int i = 1; i <= 6; i++) {
-        ChessBoard board;
+    }*/
 
+    ChessBoard board;
+    //board.make_move("f2f4");
+    //board.make_move("e7e5");
+    //board.make_move("e1f2"); 
+    //board.make_move("d8f6");
+    board.set_position("r3k2r/p1ppqpb1/bn2pnp1/3PN3/1p2P3/2N2Q1p/PPPBBPPP/R3K2R w KQkq -");
+    board.print_moves();
+    board.print_board();
+    /*board.print_moves();
+    board.print_board();
+    board.make_move("g8h8");
+    board.print_moves();
+    board.print_board();
+    board.make_move("e1c1");
+    board.print_moves();
+    board.print_board();*/  
+    int depth = 6;
+    /*for (int i = 1; i <= depth; i++) {
         auto start = std::chrono::high_resolution_clock::now();
-        std::array<uint64_t, 7> stats = board.perft(i);
-        std::array<uint64_t, 7> prev_stats = board.perft(i-1);
+        std::array<long long, 7> stats = board.perft(i, true);
+        std::array<long long, 7> prev_stats = board.perft(i-1, true);
         auto end = std::chrono::high_resolution_clock::now();
         auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-        for (int j = 1; j < 7; j++) {
+        for (int j = 1; j < 6; j++) {
             stats[j] -= prev_stats[j];
         }
 
@@ -34,11 +50,7 @@ int main() {
             std::cout << stats[j] << " ";
         }
         std::cout << duration << std::endl;
-        if (i == 6) {
-            board.perft_divide(i);
-        }
-    }
-    return 0;*/
-    ChessBoard board;
-    board.perft_divide(6);
+    }*/
+
+   board.perft_divide(depth);
 }
