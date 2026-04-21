@@ -4,12 +4,12 @@
 
 void AttackTables::init() {
     for (int square = 0; square < 64; square++) {
-        pawn_pushes[0][square] = compute_pawn_pushes_from(square, true);
-        pawn_pushes[1][square] = compute_pawn_pushes_from(square, false);
-        pawn_attacks[0][square] = compute_pawn_attacks_from(square, true);
-        pawn_attacks[1][square] = compute_pawn_attacks_from(square, false);
-        knight_attacks[square] = compute_knight_attacks_from(square);
-        king_attacks[square] = compute_king_attacks_from(square);
+        pawn_pushes_[0][square] = compute_pawn_pushes_from(square, true);
+        pawn_pushes_[1][square] = compute_pawn_pushes_from(square, false);
+        pawn_attacks_[0][square] = compute_pawn_attacks_from(square, true);
+        pawn_attacks_[1][square] = compute_pawn_attacks_from(square, false);
+        knight_attacks_[square] = compute_knight_attacks_from(square);
+        king_attacks_[square] = compute_king_attacks_from(square);
     }
 
     const std::array<std::pair<int, int>, 4> bishop_dirs = {{ {-1, -1}, {-1, 1}, {1, -1}, {1, 1} }};

@@ -1,7 +1,8 @@
 COMPILER = clang++
-FLAGS = -std=c++23 -O2
-PROFFLAGS = -std=c++23 -O2 -g -L/opt/homebrew/lib -lprofiler
+FLAGS = -std=c++23 -O3
+PROFFLAGS = -std=c++23 -O3 -g -L/opt/homebrew/lib -lprofiler
 SOURCES = main.cpp board.cpp attack_tables.cpp
+HEADERS = $(wildcard *.h)
 
 chess: $(SOURCES)
 	$(COMPILER) $(FLAGS) $(SOURCES) -o chess

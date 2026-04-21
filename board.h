@@ -1,23 +1,24 @@
 #pragma once
 
-#include <cstdint>
+#include <algorithm>
 #include <array>
-#include <map>
-#include <string>
-#include <iostream>
+#include <bit>
+#include <cstdint>
 #include <sstream>
+#include <string>
 
-enum class Piece {
-    EMPTY = 0,
-    W_PAWN = 100, W_KNIGHT = 320, W_BISHOP = 330, W_ROOK = 500, W_QUEEN = 900, W_KING = 20000,
-    B_PAWN = -100, B_KNIGHT = -320, B_BISHOP = -330, B_ROOK = -500, B_QUEEN = -900, B_KING = -20000
+
+enum Piece : int8_t {
+    EMPTY = -1,
+    W_PAWN = 0, W_KNIGHT = 1, W_BISHOP = 2, W_ROOK = 3, W_QUEEN = 4, W_KING = 5,
+    B_PAWN = 6, B_KNIGHT = 7, B_BISHOP = 8, B_ROOK = 9, B_QUEEN = 10, B_KING = 11
 };
 struct Move {
     uint32_t data; // cepppttttttffffff
 
     Move() : data(0) {}
 
-    Move(int from, int to, int promotion = 0, bool ep = false, bool castle = false) {
+    Move(int from, int to, Piece promotion = EMPTY, bool ep = false, bool castle = false) {
         data = (from & 0x3F) | 
                ((to & 0x3F) << 6) | 
                ((promotion & 0x7) << 12) | 
@@ -25,31 +26,21 @@ struct Move {
                ((castle ? 1 : 0) << 16);
     }
 
-    uint8_t from() const { return data & 0x3F; }
-    uint8_t to() const { return (data >> 6) & 0x3F; }
-    uint8_t promotion() const { return (data >> 12) & 0x7; }
-    Piece promotion(bool is_white) const {
-        int promo_code = promotion();
-        switch (promo_code) {
-            case 1: return is_white ? Piece::W_QUEEN : Piece::B_QUEEN;
-            case 2: return is_white ? Piece::W_ROOK : Piece::B_ROOK;
-            case 3: return is_white ? Piece::W_BISHOP : Piece::B_BISHOP;
-            case 4: return is_white ? Piece::W_KNIGHT : Piece::B_KNIGHT;
-            default: return Piece::EMPTY;
-        }
+    int from() const { return data & 0x3F; }
+    int to() const { return (data >> 6) & 0x3F; }
+    int promotion(bool is_white = true) const {
+        int promo_code = (data >> 12) & 0x7;
+        if (promo_code == 0x7) return EMPTY;
+        return is_white ? promo_code : promo_code + 6;
     }
     bool is_en_passant() const { return (data >> 15) & 0x1; }
     bool is_castling() const { return (data >> 16) & 0x1; }
 
     std::string to_string() const {
-        char letter_from = 'a' + (from() % 8);
-        char letter_to = 'a' + (to() % 8);
-        int digit_from = from() / 8 + 1;
-        int digit_to = to() / 8 + 1;
-
-        return std::string(1, letter_from) + std::to_string(digit_from) + 
-               std::string(1, letter_to) + std::to_string(digit_to) + 
-               (promotion() ? std::string(1, "QRBN"[promotion() - 1]) : "");
+        std::string from_str = std::string(1, 'a' + (from() % 8)) + std::to_string(from() / 8 + 1);
+        std::string to_str = std::string(1, 'a' + (to() % 8)) + std::to_string(to() / 8 + 1);
+        std::string promotion_str = promotion() != EMPTY ? std::string(1, "nbrq"[promotion()-1]) : "";
+        return from_str + to_str + promotion_str;
     }
 
     bool operator==(const Move& other) const {
@@ -61,9 +52,9 @@ struct UnmakeInfo {
     uint8_t white_king_square;
     uint8_t black_king_square;
     bool castling_rights[4];
-    uint8_t reversible_moves_count;
-    int8_t from_bb;
-    int8_t to_bb;
+    uint8_t halfmove_clock;
+    Piece moving_piece;
+    Piece target_piece;
 };
 struct MoveList {
     Move moves[256];
@@ -79,79 +70,99 @@ struct MoveList {
     inline const Move* begin() const { return moves; }
     inline const Move* end() const { return moves + size; }
 };
+enum class GameState : uint8_t {
+    ONGOING,
+    WHITE_WINS,
+    BLACK_WINS,
+    DRAW_STALEMATE,
+    DRAW_50MOVE_RULE,
+    DRAW_INSUFFICIENT_MATERIAL,
+    DRAW_REPETITION
+};
 
-class ChessBoard {
+class Board {
 public:
-    ChessBoard(bool standard = true);
+    Board(bool standard = true);
 
     UnmakeInfo make_move(const Move& move);
     bool make_move(const std::string& str_move);
     void unmake_move(const Move& move, const UnmakeInfo& info);
 
-    void generate_valid_moves(MoveList& list) const;
+    void generate_moves(MoveList& list) const;
 
-    bool is_check() const;
-    bool is_checkmate() const;
-    bool is_stalemate() const;
-    bool is_fifty_moves_rule() const;
-    bool is_game_over() const;
+    bool king_in_check() const;
+    GameState get_game_state() const;
 
-    inline uint64_t get_pawns(bool white) const;
-    inline uint64_t get_knights(bool white) const;
-    inline uint64_t get_bishops(bool white) const;
-    inline uint64_t get_rooks(bool white) const;
-    inline uint64_t get_queens(bool white) const;
-    inline uint64_t get_kings(bool white) const;
-    inline uint64_t get_white_pieces() const;
-    inline uint64_t get_black_pieces() const;
-    inline uint64_t get_current_player_pieces() const;
-    inline uint64_t get_occupancy() const;
-    inline uint64_t get_empty_squares() const;
-    inline const std::array<uint64_t, 12>& get_bitboards() const;
+    inline uint64_t get_pawns(bool white) const {
+        return bitboards[white ? W_PAWN : B_PAWN];
+    }
+    inline uint64_t get_knights(bool white) const {
+        return bitboards[white ? W_KNIGHT : B_KNIGHT];
+    }
+    inline uint64_t get_bishops(bool white) const {
+        return bitboards[white ? W_BISHOP : B_BISHOP];
+    }
+    inline uint64_t get_rooks(bool white) const {
+        return bitboards[white ? W_ROOK : B_ROOK];
+    }
+    inline uint64_t get_queens(bool white) const {
+        return bitboards[white ? W_QUEEN : B_QUEEN];
+    }
+    inline uint64_t get_kings(bool white) const {
+        return bitboards[white ? W_KING : B_KING];
+    }
+    inline uint64_t get_white_pieces() const {
+        return bitboards[W_PAWN] | bitboards[W_KNIGHT] | bitboards[W_BISHOP] | 
+               bitboards[W_ROOK] | bitboards[W_QUEEN] | bitboards[W_KING];
+        }
+    inline uint64_t get_black_pieces() const {
+        return bitboards[B_PAWN] | bitboards[B_KNIGHT] | bitboards[B_BISHOP] | 
+               bitboards[B_ROOK] | bitboards[B_QUEEN] | bitboards[B_KING];
+    }
+    inline uint64_t get_current_player_pieces() const {
+        return white_turn ? get_white_pieces() : get_black_pieces();
+    }
+    inline uint64_t get_occupancy() const {
+        return get_white_pieces() | get_black_pieces();
+    }
+    inline uint64_t get_empty_squares() const {
+        return ~get_occupancy();
+    }
+    inline const std::array<uint64_t, 12>& get_bitboards() const {
+        return bitboards;
+    }
 
     void set_position(const std::string& fen);
     void set_piece(const std::string& notation, Piece piece);
-    void set_turn(bool white);
 
-    void print_board(bool flipping = false) const;
-    void print_moves() const;
+    std::string to_string(bool flipping = false) const;
+    std::string moves_to_string() const;
 
-    void perft_divide(int depth);
-    std::array<long long, 7> perft(int depth, bool all_stats = false);
+    static int notation_to_square(const std::string& notation) {
+        return ((notation[1] - '0') - 1) * 8 + std::tolower(notation[0]) - 'a';
+    }
+    static int pop_lsb(uint64_t& bb) {
+        int index = std::countr_zero(bb);
+        bb &= bb - 1;
+        return index;
+    }
 
-    static int notation_to_square(const std::string& notation);
-    static std::string square_to_notation(int square);
-
-    static int pop_lsb(uint64_t& bb);
+    Piece piece_at(int square) const;
 
 private:
     void standard_setup();
 
-    void execute_pseudo_move(const Move& move, int from_bb, int to_bb);
-    void update_flags_and_counters(const Move& move, int from_bb, int to_bb);
+    void update_position(const Move& move, Piece moving_piece, Piece target_piece);
+    void update_state(const Move& move, Piece moving_piece, Piece target_piece);
 
-    void generate_pseudo_moves(MoveList& list) const;
-    inline uint64_t generate_pawn_moves_from(int square, bool white) const;
-    inline uint64_t generate_knight_moves_from(int square, bool white) const;
-    inline uint64_t generate_bishop_moves_from(int square, bool white, uint64_t occupancy) const;
-    inline uint64_t generate_rook_moves_from(int square, bool white, uint64_t occupancy) const;
-    inline uint64_t generate_queen_moves_from(int square, bool white, uint64_t occupancy) const;
-    inline uint64_t generate_king_moves_from(int square, bool white) const;
+    bool parse_move(const std::string& move_str, Move& move) const;
+    
+    bool draw_by_insufficient_material() const;
 
-    Move parse_move(const std::string& str_move) const;
-    bool is_pseudo_move(const Move& move) const;
-    bool leaves_king_in_check(const Move& move) const;
-    bool is_legal_move(const Move& move) const;
-
-    bool can_castle(int king_square, int target) const;
+    bool can_castle(int king_square, int target, uint64_t occupancy) const;
     bool is_square_attacked(int square, bool by_white, uint64_t occupancy) const;
-    uint64_t get_checkers() const;
-    uint64_t get_pinned_pieces(bool white) const;
-
-    int bb_index_at(int square) const;
-    Piece piece_at(int square) const;
-    int piece_to_bb_index(Piece piece) const;
-    Piece bb_index_to_piece(int bb_index) const;
+    uint64_t get_checkers(uint64_t occupancy) const;
+    uint64_t get_pinned(bool white, uint64_t occupancy) const;
 
 
     static inline bool tables_initialized = false;
@@ -165,6 +176,8 @@ private:
     bool white_queenside_castle = false;
     bool black_kingside_castle = false;
     bool black_queenside_castle = false;
-    int reversible_moves_count = 0;
-    int total_moves_count = 1;
+    int halfmove_clock = 0;
+    int fullmove_clock = 1;
+    mutable uint64_t cached_pinned = 0;
+    mutable bool cached_pinned_valid = false;
 };
