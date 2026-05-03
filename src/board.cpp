@@ -1,91 +1,136 @@
 #include "board.h"
 #include "attack_tables.h"
+#include "zobrist.h"
+#include <algorithm>
+#include <sstream>
 
 // PUBLIC
 
 Board::Board(bool standard) {
-    if (!tables_initialized) {
-        AttackTables::init();
-        tables_initialized = true;
-    }
     if (standard) {
         standard_setup();
         white_king_square = 4;
         black_king_square = 60;
-        white_kingside_castle = white_queenside_castle = true;
-        black_kingside_castle = black_queenside_castle = true;
+        castle_rights |= WK | WQ;
+        castle_rights |= BK | BQ;
     }
+    key = compute_zobrist();
 }
 
-UnmakeInfo Board::make_move(const Move& move) {
+UnmakeInfo Board::make_move(Move move) {
     UnmakeInfo info;
     info.en_passant_square = en_passant_square;
     info.white_king_square = white_king_square;
     info.black_king_square = black_king_square;
-    info.castling_rights[0] = white_kingside_castle;
-    info.castling_rights[1] = white_queenside_castle;
-    info.castling_rights[2] = black_kingside_castle;
-    info.castling_rights[3] = black_queenside_castle;
+    info.castle_rights = castle_rights;
     info.halfmove_clock = halfmove_clock;
+    info.fullmove_clock = fullmove_clock;
 
-    info.moving_piece = piece_at(move.from());
-    info.target_piece = piece_at(move.to());
-    update_position(move, info.moving_piece, info.target_piece);
-    update_state(move, info.moving_piece, info.target_piece);
+    update_bitboards(move);
+    update_mailbox(move);
+    update_state(move);
+
+    key ^= Zobrist::castle[info.castle_rights];
+    key ^= Zobrist::castle[castle_rights];
+    key ^= Zobrist::en_passant[(info.en_passant_square == -1) ? 16 : (info.en_passant_square - 24)];
+    key ^= Zobrist::en_passant[(en_passant_square == -1) ? 16 : (en_passant_square - 24)];
+    key ^= Zobrist::turn;
 
     cached_pinned_valid = false;
     return info;
 }
-bool Board::make_move(const std::string& str_move) {
+UnmakeInfo Board::make_move(const std::string& str_move) {
     Move move;
-    if (!parse_move(str_move, move)) return false;
+    if (!parse_move(str_move, move)) return UnmakeInfo{};
 
     MoveList list;
     generate_moves(list);
-    for (const Move& valid_move : list) {
+    for (Move valid_move : list) {
         if (move == valid_move) {
-            make_move(move);
-            return true;
+            UnmakeInfo info = make_move(move);
+            move_stack.push({move, info});
+            return info;
         }
     }
-    return false;
+    return UnmakeInfo{};
 }
-void Board::unmake_move(const Move& move, const UnmakeInfo& info) {
+void Board::unmake_move(Move move, const UnmakeInfo& info) {
+    key ^= Zobrist::castle[castle_rights];
+    key ^= Zobrist::castle[info.castle_rights];
+    key ^= Zobrist::en_passant[(en_passant_square == -1) ? 16 : (en_passant_square - 24)];
+    key ^= Zobrist::en_passant[(info.en_passant_square == -1) ? 16 : (info.en_passant_square - 24)];
+    key ^= Zobrist::turn;
+
     en_passant_square = info.en_passant_square;
     white_king_square = info.white_king_square;
     black_king_square = info.black_king_square;
-    white_kingside_castle = info.castling_rights[0];
-    white_queenside_castle = info.castling_rights[1];
-    black_kingside_castle = info.castling_rights[2];
-    black_queenside_castle = info.castling_rights[3];
+    castle_rights = info.castle_rights;
     halfmove_clock = info.halfmove_clock;
-    if (white_turn) {
-        fullmove_clock--;
-    }
-    white_turn = !white_turn;
-    update_position(move, info.moving_piece, info.target_piece);
+    fullmove_clock = info.fullmove_clock;
+    white_turn_ = !white_turn_;
+
+    update_bitboards(move);
+    restore_mailbox(move);
     cached_pinned_valid = false;
+}
+
+UnmakeInfo Board::make_null_move() {
+    UnmakeInfo info;
+    info.en_passant_square = en_passant_square;
+    info.halfmove_clock = halfmove_clock;
+    info.fullmove_clock = fullmove_clock;
+
+    if (en_passant_square != -1) {
+        key ^= Zobrist::en_passant[16];
+        key ^= Zobrist::en_passant[en_passant_square - 24];
+    }
+    en_passant_square = -1;
+
+    halfmove_clock++;
+    if (!white_turn_) fullmove_clock++;
+
+    key ^= Zobrist::turn;
+    white_turn_ = !white_turn_;
+
+    return info;
+}
+void Board::unmake_null_move(const UnmakeInfo& info) {
+    if (info.en_passant_square != -1) {
+        key ^= Zobrist::en_passant[16];
+        key ^= Zobrist::en_passant[en_passant_square - 24];
+    }
+    key ^= Zobrist::turn;
+
+    en_passant_square = info.en_passant_square;
+    halfmove_clock = info.halfmove_clock;
+    fullmove_clock = info.fullmove_clock;
+    white_turn_ = !white_turn_;
 }
 
 void Board::generate_moves(MoveList& list) const {
     list.clear();
-    int king_square = white_turn ? white_king_square : black_king_square;
+    int king_square = white_turn_ ? white_king_square : black_king_square;
     uint64_t occupancy = get_occupancy();
     uint64_t our_pieces = get_current_player_pieces();
-    uint64_t pinned = get_pinned(white_turn, occupancy);
+    uint64_t pinned = get_pinned(white_turn_, occupancy);
     uint64_t checkers = get_checkers(occupancy);
     uint64_t occupancy_without_king = occupancy ^ (1ULL << king_square);
 
     uint64_t king_moves = AttackTables::king_attacks(king_square) & ~our_pieces;
     while (king_moves) {
         int target = pop_lsb(king_moves);
-        if (!is_square_attacked(target, !white_turn, occupancy_without_king)) {
-            list.add(Move{king_square, target});
+        Piece moving_piece = piece_at(king_square);
+        Piece target_piece = piece_at(target);
+        if (!is_square_attacked(target, !white_turn_, occupancy_without_king)) {
+            list.add(Move{king_square, target, EMPTY, false, false, moving_piece, target_piece});
         }
     }
     if (checkers == 0) {
-        if (can_castle(king_square, king_square + 2, occupancy)) list.add(Move{king_square, king_square + 2, EMPTY, false, true});
-        if (can_castle(king_square, king_square - 2, occupancy)) list.add(Move{king_square, king_square - 2, EMPTY, false, true});
+        Piece moving_piece = piece_at(king_square);
+        if (can_castle(king_square, king_square + 2, occupancy))
+            list.add(Move{king_square, king_square + 2, EMPTY, false, true, moving_piece, EMPTY});
+        if (can_castle(king_square, king_square - 2, occupancy))
+            list.add(Move{king_square, king_square - 2, EMPTY, false, true, moving_piece, EMPTY});
     }
 
     if ((checkers & (checkers - 1)) != 0) return;
@@ -94,13 +139,13 @@ void Board::generate_moves(MoveList& list) const {
     if (checkers != 0) {
         int checker_square = std::countr_zero(checkers);
         evasion_mask = checkers;
-        uint64_t enemy_sliders = get_bishops(!white_turn) | get_rooks(!white_turn) | get_queens(!white_turn);
+        uint64_t enemy_sliders = get_bishops(!white_turn_) | get_rooks(!white_turn_) | get_queens(!white_turn_);
         if (checkers & enemy_sliders) {
-            evasion_mask |= AttackTables::between_bb[king_square][checker_square];
+            evasion_mask |= AttackTables::between_bb(king_square, checker_square);
         }
     }
 
-    uint64_t other_pieces = our_pieces & ~get_kings(white_turn);
+    uint64_t other_pieces = our_pieces & ~get_kings(white_turn_);
     while (other_pieces) {
         int square = pop_lsb(other_pieces);
         Piece moving_piece = piece_at(square);
@@ -108,11 +153,11 @@ void Board::generate_moves(MoveList& list) const {
 
         switch (moving_piece) {
             case W_PAWN: case B_PAWN: {
-                uint64_t enemy_squares = white_turn ? get_black_pieces() : get_white_pieces();
+                uint64_t enemy_squares = white_turn_ ? get_black_pieces() : get_white_pieces();
                 uint64_t empty_squares = get_empty_squares();
-                uint64_t attacks = AttackTables::pawn_attacks(square, white_turn);
-                uint64_t pushes = AttackTables::pawn_pushes(square, white_turn);
-                int dir = white_turn ? 8 : -8;
+                uint64_t attacks = AttackTables::pawn_attacks(square, white_turn_);
+                uint64_t pushes = AttackTables::pawn_pushes(square, white_turn_);
+                int dir = white_turn_ ? 8 : -8;
 
                 piece_moves |= attacks & enemy_squares;
                 if (en_passant_square != -1 && 
@@ -124,7 +169,7 @@ void Board::generate_moves(MoveList& list) const {
                 uint64_t push1 = (1ULL << (square + dir));
                 if (pushes & push1 & empty_squares) {
                     piece_moves |= push1;
-                    if (square / 8 == (white_turn ? 1 : 6)) {
+                    if (square / 8 == (white_turn_ ? 1 : 6)) {
                         uint64_t push2 = (1ULL << (square + 2*dir));
                         if (pushes & push2 & empty_squares) {
                             piece_moves |= push2;
@@ -149,22 +194,23 @@ void Board::generate_moves(MoveList& list) const {
         }
 
         if (pinned & (1ULL << square)) {
-            piece_moves &= AttackTables::line_bb[square][king_square];
+            piece_moves &= AttackTables::line_bb(square, king_square);
         }
 
         while (piece_moves) {
             int target = pop_lsb(piece_moves);
+            Piece target_piece = piece_at(target);
 
             bool is_promotion = (moving_piece == W_PAWN || moving_piece == B_PAWN) && (target / 8 == 7 || target / 8 == 0);
             bool is_ep = (moving_piece == W_PAWN || moving_piece == B_PAWN) &&
                          en_passant_square != -1 &&
-                         target == en_passant_square + (white_turn ? 8 : -8);
+                         target == en_passant_square + (white_turn_ ? 8 : -8);
 
             if (is_ep) {
-                Move move{square, target, EMPTY, true};
+                Move move{square, target, EMPTY, true, false, moving_piece, piece_at(en_passant_square)};
                 uint64_t aftermove_occupancy = (occupancy ^ (1ULL << square) ^ (1ULL << en_passant_square)) | (1ULL << target);
-                if (!(AttackTables::bishop_attacks(king_square, aftermove_occupancy) & (get_bishops(!white_turn) | get_queens(!white_turn))) && 
-                    !(AttackTables::rook_attacks(king_square, aftermove_occupancy) & (get_rooks(!white_turn) | get_queens(!white_turn)))) {
+                if (!(AttackTables::bishop_attacks(king_square, aftermove_occupancy) & (get_bishops(!white_turn_) | get_queens(!white_turn_))) && 
+                    !(AttackTables::rook_attacks(king_square, aftermove_occupancy) & (get_rooks(!white_turn_) | get_queens(!white_turn_)))) {
                     list.add(move);
                 }
                 continue;
@@ -173,12 +219,19 @@ void Board::generate_moves(MoveList& list) const {
             if (checkers != 0 && !(evasion_mask & (1ULL << target))) continue;
 
             if (is_promotion) {
-                list.add(Move{square, target, W_KNIGHT});
-                list.add(Move{square, target, W_BISHOP});
-                list.add(Move{square, target, W_ROOK});
-                list.add(Move{square, target, W_QUEEN});
+                if (white_turn_) {
+                    list.add(Move{square, target, W_KNIGHT, false, false, moving_piece, target_piece});
+                    list.add(Move{square, target, W_BISHOP, false, false, moving_piece, target_piece});
+                    list.add(Move{square, target, W_ROOK, false, false, moving_piece, target_piece});
+                    list.add(Move{square, target, W_QUEEN, false, false, moving_piece, target_piece});
+                } else {
+                    list.add(Move{square, target, B_KNIGHT, false, false, moving_piece, target_piece});
+                    list.add(Move{square, target, B_BISHOP, false, false, moving_piece, target_piece});
+                    list.add(Move{square, target, B_ROOK, false, false, moving_piece, target_piece});
+                    list.add(Move{square, target, B_QUEEN, false, false, moving_piece, target_piece});
+                }
             } else {
-                list.add(Move{square, target});
+                list.add(Move{square, target, EMPTY, false, false, moving_piece, target_piece});
             }
         }
     }
@@ -194,7 +247,7 @@ GameState Board::get_game_state() const {
 
     if (list.size == 0) {
         if (in_check) {
-            return white_turn ? GameState::BLACK_WINS : GameState::WHITE_WINS;
+            return white_turn_ ? GameState::BLACK_WINS : GameState::WHITE_WINS;
         }
         return GameState::DRAW_STALEMATE;
     }
@@ -207,23 +260,26 @@ GameState Board::get_game_state() const {
 }
 
 void Board::set_position(const std::string& fen) {
+    std::istringstream iss(fen);
+    std::string placement, active_color, castle, en_passant, halfmove, fullmove;
+    castle = en_passant = "-";
+    halfmove = "0"; fullmove = "1";
+    
+    iss >> placement >> active_color >> castle >> en_passant >> halfmove >> fullmove;
+
+    if (std::ranges::count(placement, '/') != 7 || active_color != "w" && active_color != "b") return;
+
     for (int i = 0; i < 12; i++) {
         bitboards[i] = 0;
     }
+    for (int i = 0; i < 64; i++) {
+        square_to_piece[i] = EMPTY;
+    }
     white_king_square = black_king_square = -1;
     en_passant_square = -1;
-    white_kingside_castle = white_queenside_castle = false;
-    black_kingside_castle = black_queenside_castle = false;
+    castle_rights = 0;
     halfmove_clock = 0;
     fullmove_clock = 1;
-    
-    std::istringstream iss(fen);
-    std::string placement, active_color, castling, en_passant, halfmove, fullmove;
-    active_color = "w";
-    castling = en_passant = "-";
-    halfmove = "0"; fullmove = "1";
-    
-    iss >> placement >> active_color >> castling >> en_passant >> halfmove >> fullmove;
     
     int rank = 7;
     int file = 0;
@@ -259,6 +315,7 @@ void Board::set_position(const std::string& fen) {
             
             if (piece != EMPTY) {
                 bitboards[piece] |= (1ULL << square);
+                square_to_piece[square] = piece;
                 
                 if (piece == W_KING) {
                     white_king_square = square;
@@ -270,15 +327,15 @@ void Board::set_position(const std::string& fen) {
         }
     }
     
-    white_turn = (active_color == "w");
+    white_turn_ = (active_color == "w");
     
-    if (castling != "-") {
-        for (char c : castling) {
+    if (castle != "-") {
+        for (char c : castle) {
             switch (c) {
-                case 'K': white_kingside_castle = true; break;
-                case 'Q': white_queenside_castle = true; break;
-                case 'k': black_kingside_castle = true; break;
-                case 'q': black_queenside_castle = true; break;
+                case 'K': castle_rights |= WK; break;
+                case 'Q': castle_rights |= WQ; break;
+                case 'k': castle_rights |= BK; break;
+                case 'q': castle_rights |= BQ; break;
             }
         }
     }
@@ -286,16 +343,18 @@ void Board::set_position(const std::string& fen) {
     if (en_passant == "-") {
         en_passant_square = -1;
     } else {
-        en_passant_square = notation_to_square(en_passant) + (white_turn ? -8 : 8);
+        en_passant_square = notation_to_square(en_passant) + (white_turn_ ? -8 : 8);
     }
     
     halfmove_clock = std::stoi(halfmove);
     
     int fullmove_num = std::stoi(fullmove);
     fullmove_clock = fullmove_num;
-    if (!white_turn) {
+    if (!white_turn_) {
         fullmove_clock++;
     }
+
+    key = compute_zobrist();
 }
 void Board::set_piece(const std::string& notation, Piece piece) {
     int square = notation_to_square(notation);
@@ -307,8 +366,13 @@ void Board::set_piece(const std::string& notation, Piece piece) {
 
     if (piece != EMPTY) {
         bitboards[piece] |= (1ULL << square);
+        square_to_piece[square] = piece;
+        key ^= Zobrist::pieces[piece][square];
     } else {
-        bitboards[piece_at(square)] &= ~(1ULL << square);
+        Piece deleted_piece = piece_at(square);
+        bitboards[deleted_piece] &= ~(1ULL << square);
+        square_to_piece[square] = piece;
+        key ^= Zobrist::pieces[deleted_piece][square];
     }
 }
 
@@ -318,7 +382,7 @@ std::string Board::to_string(bool flipping) const {
         "♟", "♞", "♝", "♜", "♛", "♚"
     };
 
-    flipping = flipping && !white_turn;
+    flipping = flipping && !white_turn_;
 
     std::string out;
     out.reserve(1024);
@@ -379,37 +443,47 @@ std::string Board::moves_to_string() const {
     return out;
 }
 
-Piece Board::piece_at(int square) const {
-    uint64_t mask = (1ULL << square);
-    for (int i = 0; i < 12; i++) {
-        if (bitboards[i] & mask) return static_cast<Piece>(i);
-    }
-    return EMPTY;
-}
-
 // PRIVATE
 
 void Board::standard_setup() {
-    for (int i = 8; i < 16; i++) bitboards[W_PAWN] ^= (1ULL << i);
-    bitboards[W_KNIGHT] ^= (1ULL << 1); bitboards[W_KNIGHT] ^= (1ULL << 6);
-    bitboards[W_BISHOP] ^= (1ULL << 2); bitboards[W_BISHOP] ^= (1ULL << 5);
-    bitboards[W_ROOK] ^= (1ULL << 0); bitboards[W_ROOK] ^= (1ULL << 7);
-    bitboards[W_QUEEN] ^= (1ULL << 3);
-    bitboards[W_KING] ^= (1ULL << 4);
-    for (int i = 48; i < 56; i++) bitboards[B_PAWN] ^= (1ULL << i);
-    bitboards[B_KNIGHT] ^= (1ULL << 57); bitboards[B_KNIGHT] ^= (1ULL << 62);
-    bitboards[B_BISHOP] ^= (1ULL << 58); bitboards[B_BISHOP] ^= (1ULL << 61);
-    bitboards[B_ROOK] ^= (1ULL << 56); bitboards[B_ROOK] ^= (1ULL << 63);
-    bitboards[B_QUEEN] ^= (1ULL << 59);
-    bitboards[B_KING] ^= (1ULL << 60);
+    for (int i = 8; i < 16; i++) bitboards[W_PAWN] |= (1ULL << i);
+    bitboards[W_KNIGHT] |= (1ULL << 1); bitboards[W_KNIGHT] |= (1ULL << 6);
+    bitboards[W_BISHOP] |= (1ULL << 2); bitboards[W_BISHOP] |= (1ULL << 5);
+    bitboards[W_ROOK] |= (1ULL << 0); bitboards[W_ROOK] |= (1ULL << 7);
+    bitboards[W_QUEEN] |= (1ULL << 3);
+    bitboards[W_KING] |= (1ULL << 4);
+    for (int i = 48; i < 56; i++) bitboards[B_PAWN] |= (1ULL << i);
+    bitboards[B_KNIGHT] |= (1ULL << 57); bitboards[B_KNIGHT] |= (1ULL << 62);
+    bitboards[B_BISHOP] |= (1ULL << 58); bitboards[B_BISHOP] |= (1ULL << 61);
+    bitboards[B_ROOK] |= (1ULL << 56); bitboards[B_ROOK] |= (1ULL << 63);
+    bitboards[B_QUEEN] |= (1ULL << 59);
+    bitboards[B_KING] |= (1ULL << 60);
+
+    for (int i = 0; i < 16; i++) square_to_piece[i] = W_PAWN;
+    square_to_piece[1] = W_KNIGHT; square_to_piece[6] = W_KNIGHT;
+    square_to_piece[2] = W_BISHOP; square_to_piece[5] = W_BISHOP;
+    square_to_piece[0] = W_ROOK; square_to_piece[7] = W_ROOK;
+    square_to_piece[3] = W_QUEEN;
+    square_to_piece[4] = W_KING;
+    for (int i = 16; i < 48; i++) square_to_piece[i] = EMPTY;
+    for (int i = 48; i < 56; i++) square_to_piece[i] = B_PAWN;
+    square_to_piece[57] = B_KNIGHT; square_to_piece[62] = B_KNIGHT;
+    square_to_piece[58] = B_BISHOP; square_to_piece[61] = B_BISHOP;
+    square_to_piece[56] = B_ROOK; square_to_piece[63] = B_ROOK;
+    square_to_piece[59] = B_QUEEN;
+    square_to_piece[60] = B_KING;
 }
 
-void Board::update_position(const Move& move, Piece moving_piece, Piece target_piece) {
+void Board::update_bitboards(Move move) {
     uint8_t from = move.from(), to = move.to();
+    Piece moving_piece = move.moving_piece();
+    Piece target_piece = move.target_piece();
     if (move.is_en_passant()) {
-        int captured_pawn = white_turn ? B_PAWN : W_PAWN;
+        Piece captured_pawn = white_turn_ ? B_PAWN : W_PAWN;
         bitboards[moving_piece] ^= (1ULL << from) | (1ULL << to);
         bitboards[captured_pawn] ^= (1ULL << en_passant_square);
+        key ^= Zobrist::pieces[moving_piece][from] ^ Zobrist::pieces[moving_piece][to];
+        key ^= Zobrist::pieces[captured_pawn][en_passant_square];
 
     } else if (move.is_castling()) {
         int rook_from, rook_to;
@@ -420,26 +494,94 @@ void Board::update_position(const Move& move, Piece moving_piece, Piece target_p
             rook_from = from - 4;
             rook_to = from - 1;
         }
-        Piece rook = white_turn ? W_ROOK : B_ROOK;
+        Piece rook = white_turn_ ? W_ROOK : B_ROOK;
         bitboards[moving_piece] ^= (1ULL << from) | (1ULL << to);
         bitboards[rook] ^= (1ULL << rook_from) | (1ULL << rook_to);
+        key ^= Zobrist::pieces[moving_piece][from] ^ Zobrist::pieces[moving_piece][to];
+        key ^= Zobrist::pieces[rook][rook_from] ^ Zobrist::pieces[rook][rook_to];
 
-    } else if (int promotion = move.promotion(white_turn); promotion != EMPTY) {
+    } else if (Piece promotion = move.promotion(); promotion != EMPTY) {
         bitboards[moving_piece] ^= (1ULL << from);
         bitboards[promotion] ^= (1ULL << to);
+        key ^= Zobrist::pieces[moving_piece][from];
+        key ^= Zobrist::pieces[promotion][to];
         if (target_piece != EMPTY) {
             bitboards[target_piece] ^= (1ULL << to);
+            key ^= Zobrist::pieces[target_piece][to];
         }
 
     } else {
         bitboards[moving_piece] ^= (1ULL << from) | (1ULL << to);
+        key ^= Zobrist::pieces[moving_piece][from] ^ Zobrist::pieces[moving_piece][to];
         if (target_piece != EMPTY) {
             bitboards[target_piece] ^= (1ULL << to);
+            key ^= Zobrist::pieces[target_piece][to];
         }
     }
 }
-void Board::update_state(const Move& move, Piece moving_piece, Piece target_piece) {
+void Board::update_mailbox(Move move) {
     uint8_t from = move.from(), to = move.to();
+    Piece moving_piece = move.moving_piece();
+    if (move.is_en_passant()) {
+        Piece captured_pawn = white_turn_ ? B_PAWN : W_PAWN;
+        square_to_piece[from] = EMPTY; square_to_piece[to] = moving_piece;
+        square_to_piece[en_passant_square] = EMPTY;
+
+    } else if (move.is_castling()) {
+        int rook_from, rook_to;
+        if (from < to) {
+            rook_from = from + 3;
+            rook_to = from + 1;
+        } else {
+            rook_from = from - 4;
+            rook_to = from - 1;
+        }
+        Piece rook = white_turn_ ? W_ROOK : B_ROOK;
+        square_to_piece[from] = EMPTY; square_to_piece[to] = moving_piece;
+        square_to_piece[rook_from] = EMPTY; square_to_piece[rook_to] = rook; 
+
+    } else if (Piece promotion = move.promotion(); promotion != EMPTY) {
+        square_to_piece[from] = EMPTY;
+        square_to_piece[to] = promotion;
+
+    } else {
+        square_to_piece[from] = EMPTY; square_to_piece[to] = moving_piece;
+    }
+}
+void Board::restore_mailbox(Move move) {
+    uint8_t from = move.from(), to = move.to();
+    Piece moving_piece = move.moving_piece();
+    Piece target_piece = move.target_piece();
+    if (move.is_en_passant()) {
+        Piece captured_pawn = white_turn_ ? B_PAWN : W_PAWN;
+        square_to_piece[from] = moving_piece; square_to_piece[to] = EMPTY;
+        square_to_piece[en_passant_square] = captured_pawn;
+
+    } else if (move.is_castling()) {
+        int rook_from, rook_to;
+        if (from < to) {
+            rook_from = from + 3;
+            rook_to = from + 1;
+        } else {
+            rook_from = from - 4;
+            rook_to = from - 1;
+        }
+        Piece rook = white_turn_ ? W_ROOK : B_ROOK;
+        square_to_piece[from] = moving_piece; square_to_piece[to] = EMPTY;
+        square_to_piece[rook_from] = rook; square_to_piece[rook_to] = EMPTY; 
+
+    } else if (Piece promotion = move.promotion(); promotion != EMPTY) {
+        square_to_piece[from] = moving_piece;
+        square_to_piece[to] = target_piece;
+
+    } else {
+        square_to_piece[from] = moving_piece; square_to_piece[to] = target_piece;
+    }
+}
+void Board::update_state(Move move) {
+    uint8_t from = move.from(), to = move.to();
+    Piece moving_piece = move.moving_piece();
+    Piece target_piece = move.target_piece();
     if (moving_piece == W_KING) {
         white_king_square = to;
     } else if (moving_piece == B_KING) {
@@ -453,28 +595,24 @@ void Board::update_state(const Move& move, Piece moving_piece, Piece target_piec
     }
 
     if (moving_piece == W_KING) {
-        white_kingside_castle = false;
-        white_queenside_castle = false;
+        castle_rights &= ~(WK | WQ);
     } else if (moving_piece == B_KING) {
-        black_kingside_castle = false;
-        black_queenside_castle = false;
+        castle_rights &= ~(BK | BQ);
     }
     
-    if (from == 7 || to == 7) white_kingside_castle = false;
-    if (from == 0 || to == 0) white_queenside_castle = false;
-    if (from == 63 || to == 63) black_kingside_castle = false;
-    if (from == 56 || to == 56) black_queenside_castle = false;
+    if (from == 7 || to == 7) castle_rights &= ~WK;
+    if (from == 0 || to == 0) castle_rights &= ~WQ;
+    if (from == 63 || to == 63) castle_rights &= ~BK;
+    if (from == 56 || to == 56) castle_rights &= ~BQ;    
 
     if (target_piece != EMPTY || moving_piece == W_PAWN || moving_piece == B_PAWN) {
         halfmove_clock = 0;
     } else {
         halfmove_clock++;
     }
-    if (!white_turn) {
-        fullmove_clock++;
-    }
+    if (!white_turn_) fullmove_clock++;
 
-    white_turn = !white_turn;
+    white_turn_ = !white_turn_;
 }
 
 bool Board::parse_move(const std::string& move_str, Move& move) const {
@@ -489,6 +627,7 @@ bool Board::parse_move(const std::string& move_str, Move& move) const {
     Piece moving_piece = piece_at(from);
     if (moving_piece == EMPTY) return false;
     
+    Piece target_piece = piece_at(to);
     Piece promotion = EMPTY;
     std::string str_promotion = move_str.substr(4, 1);
     switch (str_promotion[0]) {
@@ -501,12 +640,12 @@ bool Board::parse_move(const std::string& move_str, Move& move) const {
 
     bool is_ep = (moving_piece == W_PAWN || moving_piece == B_PAWN) && 
                 en_passant_square != -1 && 
-                to == en_passant_square + (white_turn ? 8 : -8) &&
+                to == en_passant_square + (white_turn_ ? 8 : -8) &&
                 abs(from % 8 - en_passant_square % 8) == 1;
 
     bool is_castling = (moving_piece == W_KING || moving_piece == B_KING) && abs(from - to) == 2 && can_castle(from, to, get_occupancy());
     
-    move = Move{from, to, promotion, is_ep, is_castling};
+    move = Move{from, to, promotion, is_ep, is_castling, moving_piece, target_piece};
     return true;
 }
 
@@ -541,26 +680,26 @@ bool Board::can_castle(int king_square, int target, uint64_t occupancy) const {
 
     if (target > king_square) {
         Piece rook = piece_at(king_square + 3);
-        if (rook != W_ROOK && white_turn || rook != B_ROOK && !white_turn) return false;
+        if (rook != W_ROOK && white_turn_ || rook != B_ROOK && !white_turn_) return false;
 
-        if (target == 6 && !white_kingside_castle) return false;
-        if (target == 62 && !black_kingside_castle) return false;
+        if (target == 6 && !(castle_rights & WK)) return false;
+        if (target == 62 && !(castle_rights & BK)) return false;
 
         uint64_t castling_path = (1ULL << (king_square + 1)) | (1ULL << (king_square + 2));
         if (occupancy & castling_path) return false;
 
-        if (is_square_attacked(king_square + 1, !white_turn, occupancy) || is_square_attacked(king_square + 2, !white_turn, occupancy)) return false;
+        if (is_square_attacked(king_square + 1, !white_turn_, occupancy) || is_square_attacked(king_square + 2, !white_turn_, occupancy)) return false;
     } else {
         Piece rook = piece_at(king_square - 4);
-        if (rook != W_ROOK && white_turn || rook != B_ROOK && !white_turn) return false;
+        if (rook != W_ROOK && white_turn_ || rook != B_ROOK && !white_turn_) return false;
 
-        if (target == 2 && !white_queenside_castle) return false;
-        if (target == 58 && !black_queenside_castle) return false;
+        if (target == 2 && !(castle_rights & WQ)) return false;
+        if (target == 58 && !(castle_rights & BQ)) return false;
         
         uint64_t castling_path = (1ULL << (king_square - 1)) | (1ULL << (king_square - 2)) | (1ULL << (king_square - 3));
         if (occupancy & castling_path) return false;
         
-        if (is_square_attacked(king_square - 1, !white_turn, occupancy) || is_square_attacked(king_square - 2, !white_turn, occupancy)) return false;
+        if (is_square_attacked(king_square - 1, !white_turn_, occupancy) || is_square_attacked(king_square - 2, !white_turn_, occupancy)) return false;
     }
 
     return true;
@@ -576,13 +715,13 @@ bool Board::is_square_attacked(int square, bool by_white, uint64_t occupancy) co
     return false;
 }
 uint64_t Board::get_checkers(uint64_t occupancy) const {
-    int king_square = white_turn ? white_king_square : black_king_square;
+    int king_square = white_turn_ ? white_king_square : black_king_square;
     uint64_t checkers = 0;
 
-    checkers |= AttackTables::bishop_attacks(king_square, occupancy) & (get_bishops(!white_turn) | get_queens(!white_turn));
-    checkers |= AttackTables::rook_attacks(king_square, occupancy) & (get_rooks(!white_turn) | get_queens(!white_turn));
-    checkers |= AttackTables::pawn_attacks(king_square, white_turn) & get_pawns(!white_turn);
-    checkers |= AttackTables::knight_attacks(king_square) & get_knights(!white_turn);
+    checkers |= AttackTables::bishop_attacks(king_square, occupancy) & (get_bishops(!white_turn_) | get_queens(!white_turn_));
+    checkers |= AttackTables::rook_attacks(king_square, occupancy) & (get_rooks(!white_turn_) | get_queens(!white_turn_));
+    checkers |= AttackTables::pawn_attacks(king_square, white_turn_) & get_pawns(!white_turn_);
+    checkers |= AttackTables::knight_attacks(king_square) & get_knights(!white_turn_);
 
     return checkers;
 }
@@ -605,11 +744,28 @@ uint64_t Board::get_pinned(bool white, uint64_t occupancy) const {
         uint64_t pinned = 0;
         while (pinners) {
             int pinner_square = pop_lsb(pinners);
-            pinned |= AttackTables::between_bb[king_square][pinner_square] & our_pieces;
+            pinned |= AttackTables::between_bb(king_square, pinner_square) & our_pieces;
         }
 
         cached_pinned = pinned;
         cached_pinned_valid = true;
     }
     return cached_pinned;
+}
+
+uint64_t Board::compute_zobrist() const {
+    uint64_t key = 0;
+
+    for (int piece = 0; piece < 12; piece++) {
+        uint64_t bb = bitboards[piece];
+        while (bb) {
+            int square = pop_lsb(bb);
+            key ^= Zobrist::pieces[piece][square];
+        }
+    }
+    key ^= Zobrist::castle[castle_rights];
+    key ^= Zobrist::en_passant[(en_passant_square == -1) ? 16 : (en_passant_square - 24)];
+    key ^= (white_turn_ ? Zobrist::turn : 0);
+
+    return key;
 }

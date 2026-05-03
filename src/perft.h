@@ -3,6 +3,7 @@
 #include "board.h"
 #include <fstream>
 #include <iostream>
+#include <sstream>
 
 
 std::array<long long, 7> perft(Board& board, int depth, bool all_stats = false) {
@@ -15,7 +16,7 @@ std::array<long long, 7> perft(Board& board, int depth, bool all_stats = false) 
         if (!all_stats) return {list.size, 0, 0, 0, 0, 0, 0};
 
         std::array<long long, 7> stats = {list.size, 0, 0, 0, 0, 0, 0};
-        for (const Move& move : list) {
+        for (Move move : list) {
             stats[1] += (board.piece_at(move.to()) != EMPTY || move.is_en_passant()) ? 1 : 0;
             stats[2] += move.is_en_passant() ? 1 : 0;
             stats[3] += move.is_castling() ? 1 : 0;
@@ -34,11 +35,11 @@ std::array<long long, 7> perft(Board& board, int depth, bool all_stats = false) 
     }
 
     std::array<long long, 7> stats = {0, 0, 0, 0, 0, 0, 0};
-    for (const Move& move : list) {
+    for (Move move : list) {
         UnmakeInfo info = board.make_move(move);
         
         if (all_stats) {
-            stats[1] += (info.target_piece != EMPTY || move.is_en_passant()) ? 1 : 0;
+            stats[1] += (move.target_piece() != EMPTY || move.is_en_passant()) ? 1 : 0;
             stats[2] += move.is_en_passant() ? 1 : 0;
             stats[3] += move.is_castling() ? 1 : 0;
             stats[4] += move.promotion() != -1 ? 1 : 0;
@@ -61,7 +62,7 @@ void perft_divide(Board& board, int depth) {
 
     std::cout << "=== perft divide (depth " << depth << ") ===\n";
     
-    for (const Move& move : list) {
+    for (Move move : list) {
         UnmakeInfo info = board.make_move(move);
         uint64_t nodes = perft(board, depth - 1, false)[0];
         total_nodes += nodes;

@@ -1,14 +1,25 @@
-COMPILER = clang++
-FLAGS = -std=c++23 -O3
+COMPILER  = clang++
+FLAGS     = -std=c++23 -O3
 PROFFLAGS = -std=c++23 -O3 -g -L/opt/homebrew/lib -lprofiler
-SOURCES = main.cpp board.cpp attack_tables.cpp
-HEADERS = $(wildcard *.h)
 
-chess: $(SOURCES)
-	$(COMPILER) $(FLAGS) $(SOURCES) -o chess
+SRCDIR   = src
+BUILDDIR = build
+SOURCES  = $(wildcard $(SRCDIR)/*.cpp)
+HEADERS  = $(wildcard $(SRCDIR)/*.h)
 
-chess-profiling: $(SOURCES)
-	$(COMPILER) $(PROFFLAGS) $(SOURCES) -o chess-profiling
+TARGET ?= metis
+OUT     = $(BUILDDIR)/$(TARGET)
+
+$(OUT): $(SOURCES) $(HEADERS) | $(BUILDDIR)
+	$(COMPILER) $(FLAGS) $(SOURCES) -o $@
+
+profiling: $(SOURCES) $(HEADERS) | $(BUILDDIR)
+	$(COMPILER) $(PROFFLAGS) $(SOURCES) -o $(BUILDDIR)/profiling
+
+$(BUILDDIR):
+	mkdir -p $@
 
 clean:
-	rm -rf chess chess-profiling chess-profiling.dSYM .prof
+	rm -rf $(BUILDDIR)
+
+.PHONY: clean profiling
