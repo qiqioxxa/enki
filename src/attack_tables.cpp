@@ -34,8 +34,6 @@ void AttackTables::init() {
             cur_blockers = (cur_blockers - mask) & mask;
         } while (cur_blockers != 0);
     }
-
-    initialized = true;
 }
 
 // PRIVATE
