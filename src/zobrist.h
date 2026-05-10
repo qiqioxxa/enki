@@ -6,7 +6,7 @@
 
 namespace Zobrist {
     inline uint64_t pieces[12][64];
-    inline uint64_t castle[16];
+    inline uint64_t castling[16];
     inline uint64_t en_passant[17];
     inline uint64_t turn;
 
@@ -20,7 +20,7 @@ namespace Zobrist {
             }
         }
         for (int i = 0; i < 16; i++) {
-            castle[i] = uid(gen);
+            castling[i] = uid(gen);
         }
         for (int i = 0; i < 17; i++) {
             en_passant[i] = uid(gen);

@@ -11,16 +11,6 @@ enum CastleRights : uint8_t {
     BQ = 0b0001
 };
 
-enum class GameState : uint8_t {
-    ONGOING,
-    WHITE_WINS,
-    BLACK_WINS,
-    DRAW_STALEMATE,
-    DRAW_50MOVE_RULE,
-    DRAW_INSUFFICIENT_MATERIAL,
-    DRAW_REPETITION
-};
-
 enum Piece : int8_t {
     W_PAWN = 0, W_KNIGHT = 1, W_BISHOP = 2, W_ROOK = 3, W_QUEEN = 4, W_KING = 5,
     B_PAWN = 6, B_KNIGHT = 7, B_BISHOP = 8, B_ROOK = 9, B_QUEEN = 10, B_KING = 11,
@@ -32,12 +22,12 @@ struct Move {
 
     Move() { data = 0; }
 
-    Move(int from, int to, Piece promotion, bool ep, bool castle, Piece moving_piece, Piece target_piece) {
+    Move(int from, int to, Piece promotion, bool ep, bool castling, Piece moving_piece, Piece target_piece) {
         data = (from & 0x3F) | 
                ((to & 0x3F) << 6) | 
                ((promotion & 0xF) << 12) | 
                ((ep ? 1 : 0) << 16) | 
-               ((castle ? 1 : 0) << 17) | 
+               ((castling ? 1 : 0) << 17) | 
                ((moving_piece & 0xF) << 18) | 
                ((target_piece & 0xF) << 22);
     }
@@ -68,24 +58,23 @@ struct MoveList {
     Move moves[218];
     int size = 0;
 
-    inline void add(Move move) { moves[size++] = move; }
-    inline void clear() { size = 0; }
-    inline Move& operator[](int i) { return moves[i]; }
-    inline const Move& operator[](int i) const { return moves[i]; }
+    void add(Move move) { moves[size++] = move; }
+    void clear() { size = 0; }
 
-    inline Move* begin() { return moves; }
-    inline Move* end() { return moves + size; }
-    inline const Move* begin() const { return moves; }
-    inline const Move* end() const { return moves + size; }
+    Move& operator[](int i) { return moves[i]; }
+    const Move& operator[](int i) const { return moves[i]; }
+
+    Move* begin() { return moves; }
+    Move* end() { return moves + size; }
+    const Move* begin() const { return moves; }
+    const Move* end() const { return moves + size; }
 };
 
 struct UnmakeInfo {
     int8_t en_passant_square;
     uint8_t white_king_square;
     uint8_t black_king_square;
-    uint8_t castle_rights;
+    uint8_t castling_rights;
     uint8_t halfmove_clock;
     uint8_t fullmove_clock;
-
-    bool operator==(const UnmakeInfo&) const = default;
 };
