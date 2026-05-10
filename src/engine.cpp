@@ -1,6 +1,8 @@
 #include "engine.h"
-
-#include "iostream"
+#include "gamestate.h"
+#include "movegen.h"
+#include "utils.h"
+#include <iostream>
 
 // PUBLIC
 static uint64_t total = 0;
@@ -14,7 +16,7 @@ Move Engine::choose_move(Board& board, int max_depth, int time_limit_ms) const {
     int delta = 50;
 
     MoveList root_list;
-    board.generate_moves(root_list);
+    MoveGen::generate_moves(board, root_list);
     if (root_list.size == 0) return Move{};
     best_move = root_list[0];
 
@@ -63,14 +65,14 @@ Move Engine::choose_move(Board& board, int max_depth, int time_limit_ms) const {
         uint64_t d_hits  = hits - iter_hits;
         double d_rate    = d_nodes > 0 ? (100.0 * d_hits / d_nodes) : 0.0;
         double d_nps     = (d_nodes * 1000.0) / iter_ms;
-        std::cout << "depth: " << depth 
+        /*std::cout << "depth: " << depth 
                 << " score: " << score 
                 << " best: " << best_move.to_string()
                 << " time: " << iter_ms / 1000 << "s"
                 << " Mnodes: " << (double)d_nodes / 1'000'000
                 << " Mnps: " << d_nps / 1'000'000
                 << " hits: " << d_rate << "%"
-                << " hashfull: " << tt.hashfull() << "\n";
+                << " hashfull: " << tt.hashfull() << "\n";*/
     }
 
     return best_move;
@@ -89,10 +91,10 @@ int Engine::search(Board& board, int depth, int alpha, int beta) const {
     }
 
     MoveList list;
-    board.generate_moves(list);
+    MoveGen::generate_moves(board, list);
 
     if (list.size == 0) {
-        int score = board.king_in_check() ? -CHECKMATE - depth : 0;
+        int score = king_in_check(board) ? -CHECKMATE - depth : 0;
         tt.record(board.zobrist_key(), Move{}, score, depth, TTentry::EXACT);
         return score;
     }
@@ -136,7 +138,7 @@ int Engine::quiescence(Board& board, int alpha, int beta) const {
 
     // 2. Генерируем ходы и оставляем только взятия (включая en-passant)
     MoveList list;
-    board.generate_moves(list);
+    MoveGen::generate_moves(board, list);
 
     int captures = 0;
 
