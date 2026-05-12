@@ -4,12 +4,12 @@
 #include "types.h"
 #include "utils.h"
 
+
 void MoveGen::generate_moves(const Board& board, MoveList& list) {
     list.clear();
     int king_square = board.king_square(board.white_turn());
     uint64_t occupancy = board.get_occupancy();
     uint64_t our_pieces = board.get_current_player_pieces();
-    uint64_t pinned = get_pinned(board, occupancy);
     uint64_t checkers = get_checkers(board, occupancy);
     uint64_t occupancy_without_king = occupancy ^ (1ULL << king_square);
 
@@ -33,6 +33,7 @@ void MoveGen::generate_moves(const Board& board, MoveList& list) {
     if ((checkers & (checkers - 1)) != 0) return;
 
     uint64_t evasion_mask = ~0ULL;
+    
     if (checkers != 0) {
         int checker_square = std::countr_zero(checkers);
         evasion_mask = checkers;
@@ -42,6 +43,7 @@ void MoveGen::generate_moves(const Board& board, MoveList& list) {
         }
     }
 
+    uint64_t pinned = get_pinned(board, occupancy);
     uint64_t other_pieces = our_pieces & ~board.get_king(board.white_turn());
     while (other_pieces) {
         int square = pop_lsb(other_pieces);
@@ -134,6 +136,16 @@ void MoveGen::generate_moves(const Board& board, MoveList& list) {
     }
 }
 
+bool MoveGen::is_square_attacked(const Board& board, int square, bool by_white, uint64_t occupancy) {
+    if (AttackTables::bishop_attacks(square, occupancy) & (board.get_bishops(by_white) | board.get_queens(by_white))) return true;
+    if (AttackTables::rook_attacks(square, occupancy) & (board.get_rooks(by_white) | board.get_queens(by_white))) return true;
+
+    if (AttackTables::pawn_attacks(square, !by_white) & board.get_pawns(by_white)) return true;
+    if (AttackTables::knight_attacks(square) & board.get_knights(by_white)) return true;
+    if (AttackTables::king_attacks(square) & board.get_king(by_white)) return true;
+
+    return false;
+}
 bool MoveGen::can_castle(const Board& board, int king_square, int target, uint64_t occupancy) {
     if (king_square != 4 && king_square != 60) return false;
 
@@ -162,16 +174,6 @@ bool MoveGen::can_castle(const Board& board, int king_square, int target, uint64
     }
 
     return true;
-}
-bool MoveGen::is_square_attacked(const Board& board, int square, bool by_white, uint64_t occupancy) {
-    if (AttackTables::bishop_attacks(square, occupancy) & (board.get_bishops(by_white) | board.get_queens(by_white))) return true;
-    if (AttackTables::rook_attacks(square, occupancy) & (board.get_rooks(by_white) | board.get_queens(by_white))) return true;
-
-    if (AttackTables::pawn_attacks(square, !by_white) & board.get_pawns(by_white)) return true;
-    if (AttackTables::knight_attacks(square) & board.get_knights(by_white)) return true;
-    if (AttackTables::king_attacks(square) & board.get_king(by_white)) return true;
-
-    return false;
 }
 uint64_t MoveGen::get_checkers(const Board& board, uint64_t occupancy) {
     int king_square = board.king_square(board.white_turn());
