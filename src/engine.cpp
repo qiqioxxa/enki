@@ -65,14 +65,8 @@ Move Engine::choose_move(Board& board, int max_depth, int time_limit_ms) const {
         uint64_t d_hits  = hits - iter_hits;
         double d_rate    = d_nodes > 0 ? (100.0 * d_hits / d_nodes) : 0.0;
         double d_nps     = (d_nodes * 1000.0) / iter_ms;
-        /*std::cout << "depth: " << depth 
-                << " score: " << score 
-                << " best: " << best_move.to_string()
-                << " time: " << iter_ms / 1000 << "s"
-                << " Mnodes: " << (double)d_nodes / 1'000'000
-                << " Mnps: " << d_nps / 1'000'000
-                << " hits: " << d_rate << "%"
-                << " hashfull: " << tt.hashfull() << "\n";*/
+        /*std::println("depth: {} score: {} best: {} time: {}s Mnodes: {} Mnps: {} hits: {}\% hashfull: {}", 
+                     depth, score, best_move.to_string(), iter_ms / 1000, (double)d_nodes / 1'000'000, d_nps / 1'000'000, d_rate, tt.hashfull());*/
     }
 
     return best_move;

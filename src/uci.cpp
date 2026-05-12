@@ -4,7 +4,7 @@
 #include "utils.h"
 #include <iostream>
 #include <optional>
-#include <iostream>
+#include <print>
 
 
 void UCI::run() {
@@ -23,17 +23,17 @@ void UCI::run() {
         else if (cmd == "d") handle_d();
         else if (cmd == "dd") handle_dd();
         else if (cmd == "quit") return;
-        else if (!uci_mode) std::cout << "Unknown command: \"" << line << "\"" << std::endl;
+        else if (!uci_mode) std::println("Unknown command: \"{}\"", line);
     }
 }
 
 void UCI::handle_uci() {
     uci_mode = true;
-    std::cout << "id name Metis\n";
-    std::cout << "id author qiqioxxa\n";
-    std::cout << "option name Hash type spin default 16 min 1 max 8192\n";
-    std::cout << "uciok\n";
-    std::cout.flush();
+    std::println("id name Metis");
+    std::println("id author qiqioxxa");
+    std::println("option name Hash type spin default 16 min 1 max 8192");
+    std::println("uciok");
+    std::fflush(stdout);
 }
 void UCI::handle_setoption(std::istringstream& iss) {
     std::string name_kw, option, value_kw, value;
@@ -51,8 +51,8 @@ void UCI::handle_setoption(std::istringstream& iss) {
     }
 }
 void UCI::handle_isready() {
-    std::cout << "readyok\n";
-    std::cout.flush();
+    std::println("readyok");
+    std::fflush(stdout);
 }
 void UCI::handle_ucinewgame() {
     board.set_position("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1");
@@ -111,7 +111,7 @@ void UCI::handle_go(std::istringstream& iss) {
                 }
                 catch(...) { return; }
                 perft_divide(board, depth);
-                std::cout.flush();
+                std::fflush(stdout);
             }
 
         } else if (option == "perftallstats") {
@@ -126,34 +126,35 @@ void UCI::handle_go(std::istringstream& iss) {
 
                 std::array<long long, 7> stats = perft(board, depth, true);
                 std::array<long long, 7> correction = perft(board, depth - 1, true);
-                std::cout << "Nodes:      " << stats[0] << "\n";
-                std::cout << "Captures:   " << stats[1] - correction[1] << "\n";
-                std::cout << "EPs:        " << stats[2] - correction[2] << "\n";
-                std::cout << "Castles:    " << stats[3] - correction[3] << "\n";
-                std::cout << "Promotions: " << stats[4] - correction[4] << "\n";
-                std::cout << "Checks:     " << stats[5] - correction[5] << "\n";
-                std::cout << "Mates:      " << stats[6] << "\n";
-                std::cout.flush();
+                std::println("Nodes:      {}", stats[0]);
+                std::println("Captures:   {}", stats[1] - correction[1]);
+                std::println("EPs:        {}", stats[2] - correction[2]);
+                std::println("Castles:    {}", stats[3] - correction[3]);
+                std::println("Promotions: {}", stats[4] - correction[4]);
+                std::println("Checks:     {}", stats[5] - correction[5]);
+                std::println("Mates:      {}", stats[6]);
+                std::fflush(stdout);
+
             }
 
         } else if (option == "tests") {
             run_tests("tests/perft_positions.txt");
-            std::cout.flush();
+            std::fflush(stdout);
         }
     }
-    Move move = engine.choose_move(board, MAX_DEPTH, MAX_TIME_MS);
-    std::cout << "bestmove " << move.to_string() << "\n";
-    std::cout.flush();
+    Move best_move = engine.choose_move(board, MAX_DEPTH, MAX_TIME_MS);
+    std::println("bestmove {}", best_move.to_string());
+    std::fflush(stdout);
 }
 void UCI::handle_d() {
-    std::cout << board.to_string_compat() << "\n";
-    std::cout << "Fen: " << board.to_fen() << "\n";
-    std::cout.flush();
+    std::println("{}", board.to_string_compat());
+    std::println("Fen: {}", board.to_fen());
+    std::fflush(stdout);
 }
 void UCI::handle_dd() {
-    std::cout << board.to_string() << "\n";
-    std::cout << "Fen: " << board.to_fen() << "\n";
-    std::cout.flush();
+    std::println("{}", board.to_string());
+    std::println("Fen: {}", board.to_fen());
+    std::fflush(stdout);
 }
 
 Move UCI::parse_move_uci(const Board& board, const std::string& move_str) {

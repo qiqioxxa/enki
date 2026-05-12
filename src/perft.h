@@ -4,7 +4,7 @@
 #include "gamestate.h"
 #include "movegen.h"
 #include <fstream>
-#include <iostream>
+#include <print>
 #include <sstream>
 
 
@@ -63,20 +63,20 @@ void perft_divide(Board& board, int depth) {
     MoveGen::generate_moves(board, list);
     uint64_t total_nodes = 0;
 
-    std::cout << "=== Perft divide (depth " << depth << ") ===\n";
+    std::println("=== Perft divide (depth {}) ===", depth);
     
     for (Move move : list) {
         UnmakeInfo info = board.make_move(move);
         uint64_t nodes = perft(board, depth - 1, false)[0];
         total_nodes += nodes;
-        std::cout << move.to_string() << ": " << nodes << "\n";
+        std::println("{}: {}", move.to_string(), nodes);
         board.unmake_move(move, info);
     }
     
     auto end = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
     
-    std::cout << "Total: " << total_nodes << " (" << duration << " ms)\n";
+    std::println("Total: {} ({} ms)", total_nodes, duration);
 }
 
 void run_tests(const std::string& file_path) {
@@ -96,7 +96,7 @@ void run_tests(const std::string& file_path) {
 
         expected_nodes += std::stoi(result);
 
-        std::cout << "Testing position " << i << ": " << fen << "|" << depth << "|" << result << "\n";
+        std::println("Testing position {}: {}|{}|{}", i, fen, depth, result);
 
         Board board;
         board.set_position(fen);
@@ -110,12 +110,12 @@ void run_tests(const std::string& file_path) {
         total_nodes += nodes;
 
         if (std::to_string(nodes) != result ) {
-            std::cout << "❗️ Test failed! Expected " << result << " but got " << nodes << "\n";
+            std::println("❗️ Test failed! Expected {} but got {}", result, nodes);
         }
 
         i++;
     }
 
-    std::cout << "Total nodes: " << total_nodes << ", total time: " << total_time << " ms" << ", avg speed: " << (total_nodes / total_time / 1000.0) << " Mnodes/s\n";
-    std::cout << "Expected:    " << expected_nodes << "\n";
+    std::println("Total nodes: {}, total time: {} ms, avg speed: {} Mnodes/s", total_nodes, total_time, (total_nodes / total_time / 1000.0));
+    std::println("Expected:    {}", expected_nodes);
 }
