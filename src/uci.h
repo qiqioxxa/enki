@@ -3,17 +3,21 @@
 #include "board.h"
 #include "engine.h"
 #include "types.h"
+#include <optional>
 #include <sstream>
 #include <string>
+#include <thread>
+
 
 class UCI {
-    Board board{};
-    Engine engine{};
+    Board board;
+    Engine engine;
+    std::thread search_thread;
     bool uci_mode = false;
-    const int MAX_DEPTH = 7;
-    const int MAX_TIME_MS = 10000;
 
 public:
+    UCI() {};
+    ~UCI() { if (search_thread.joinable()) search_thread.join(); }
     void run();
 
 private:
@@ -23,6 +27,7 @@ private:
     void handle_ucinewgame();
     void handle_position(std::istringstream& iss);
     void handle_go(std::istringstream& iss);
+    void handle_stop();
     void handle_d();
     void handle_dd();
 
