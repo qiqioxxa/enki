@@ -3,6 +3,7 @@
 #include "board.h"
 #include "gamestate.h"
 #include "movegen.h"
+#include <chrono>
 #include <fstream>
 #include <print>
 #include <sstream>
@@ -27,9 +28,9 @@ std::array<long long, 7> perft(Board& board, int depth, bool all_stats = false) 
             UnmakeInfo info = board.make_move(move);
             if (king_in_check(board)) {
                 stats[5]++;
-                MoveList opp_moves;
-                MoveGen::generate_moves(board, opp_moves);
-                if (opp_moves.size == 0) stats[6]++;
+                MoveList opponent_list;
+                MoveGen::generate_moves(board, opponent_list);
+                if (opponent_list.size == 0) stats[6]++;
             }
             board.unmake_move(move, info);
         }
@@ -116,6 +117,6 @@ void run_tests(const std::string& file_path) {
         i++;
     }
 
-    std::println("Total nodes: {}, total time: {} ms, avg speed: {} Mnodes/s", total_nodes, total_time, (total_nodes / total_time / 1000.0));
     std::println("Expected:    {}", expected_nodes);
+    std::println("Total nodes: {}, total time: {} ms, avg speed: {} Mnodes/s", total_nodes, total_time, (total_nodes / total_time / 1000.0));
 }

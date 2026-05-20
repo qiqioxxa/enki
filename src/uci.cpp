@@ -3,7 +3,6 @@
 #include "perft.h"
 #include "utils.h"
 #include <iostream>
-#include <optional>
 #include <print>
 
 
@@ -14,16 +13,17 @@ void UCI::run() {
         std::string cmd;
         iss >> cmd;
 
-        if (cmd == "uci") handle_uci();
-        else if (cmd == "setoption") handle_setoption(iss);
-        else if (cmd == "isready") handle_isready();
+        if      (cmd == "uci")        handle_uci();
+        else if (cmd == "setoption")  handle_setoption(iss);
+        else if (cmd == "isready")    handle_isready();
         else if (cmd == "ucinewgame") handle_ucinewgame();
-        else if (cmd == "position") handle_position(iss);
-        else if (cmd == "go") handle_go(iss);
-        else if (cmd == "d") handle_d();
-        else if (cmd == "dd") handle_dd();
-        else if (cmd == "quit") return;
-        else if (!uci_mode) std::println("Unknown command: \"{}\"", line);
+        else if (cmd == "position")   handle_position(iss);
+        else if (cmd == "go")         handle_go(iss);
+        else if (cmd == "stop")       handle_stop();
+        else if (cmd == "d")          handle_d();
+        else if (cmd == "dd")         handle_dd();
+        else if (cmd == "quit")       return;
+        else if (!uci_mode)           std::println("Unknown command: \"{}\"", line);
     }
 }
 
@@ -62,23 +62,23 @@ void UCI::handle_position(std::istringstream& iss) {
     std::string fen_kw, fen, moves_kw;
 
     if (iss >> fen_kw) {
-        if (fen_kw != "startpos" && fen_kw != "fen") return;
-
-        if (fen_kw == "startpos") {
-            fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
-            iss >> moves_kw;
-        } else {
+        if (fen_kw == "fen") {
             std::string fen_part;
             while (iss >> fen_part) {
                 if (fen_part == "moves") {
                     moves_kw = "moves";
-                    fen_part = "";
                     break;
                 }
-                if (fen != "") fen += " ";
+                if (!fen.empty()) fen += " ";
                 fen += fen_part;
             }
-        }
+
+        } else if (fen_kw == "startpos") {
+            fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+            iss >> moves_kw;
+
+        } else return;
+
         board.set_position(fen);
 
         if (moves_kw == "moves") {
@@ -100,6 +100,7 @@ void UCI::handle_position(std::istringstream& iss) {
 }
 void UCI::handle_go(std::istringstream& iss) {
     std::string option;
+    auto pos = iss.tellg();
     if (iss >> option) {
         if (option == "perft") {
             std::string value;
@@ -113,8 +114,9 @@ void UCI::handle_go(std::istringstream& iss) {
                 perft_divide(board, depth);
                 std::fflush(stdout);
             }
-
-        } else if (option == "perftallstats") {
+            return;
+        }
+        if (option == "perftallstats") {
             std::string value;
             if (iss >> value) {
                 int depth;
@@ -126,6 +128,7 @@ void UCI::handle_go(std::istringstream& iss) {
 
                 std::array<long long, 7> stats = perft(board, depth, true);
                 std::array<long long, 7> correction = perft(board, depth - 1, true);
+
                 std::println("Nodes:      {}", stats[0]);
                 std::println("Captures:   {}", stats[1] - correction[1]);
                 std::println("EPs:        {}", stats[2] - correction[2]);
@@ -134,17 +137,43 @@ void UCI::handle_go(std::istringstream& iss) {
                 std::println("Checks:     {}", stats[5] - correction[5]);
                 std::println("Mates:      {}", stats[6]);
                 std::fflush(stdout);
-
             }
-
-        } else if (option == "tests") {
+            return;
+        }
+        if (option == "tests") {
             run_tests("tests/perft_positions.txt");
             std::fflush(stdout);
+            return;
         }
+        iss.seekg(pos);
     }
-    Move best_move = engine.choose_move(board, MAX_DEPTH, MAX_TIME_MS);
-    std::println("bestmove {}", best_move.to_string());
-    std::fflush(stdout);
+    SearchParameters sp;
+    std::string param;
+    while (iss >> param) {
+        if      (param == "wtime")     iss >> sp.wtime;
+        else if (param == "btime")     iss >> sp.btime;
+        else if (param == "winc")      iss >> sp.winc;
+        else if (param == "binc")      iss >> sp.binc;
+        else if (param == "movestogo") iss >> sp.movestogo;
+        else if (param == "depth")     iss >> sp.depth;
+        else if (param == "movetime")  iss >> sp.movetime;
+        else if (param == "infinite")  sp.infinite = true;
+    }
+    if (sp.wtime == 0 && sp.btime == 0 && sp.depth == 0 && sp.movetime == 0) {
+        sp.infinite = true;
+    }
+
+    if (search_thread.joinable()) search_thread.join();
+
+    search_thread = std::thread([this, sp]() {
+        Move best_move = engine.choose_move(board, sp);
+        std::println("bestmove {}", best_move.to_string());
+        std::fflush(stdout);
+    });
+}
+void UCI::handle_stop() {
+    engine.stop();
+    if (search_thread.joinable()) search_thread.join();
 }
 void UCI::handle_d() {
     std::println("{}", board.to_string_compat());

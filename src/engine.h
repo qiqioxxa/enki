@@ -2,10 +2,22 @@
 
 #include "board.h"
 #include "ttable.h"
+#include "types.h"
+#include <atomic>
 
+
+struct SearchParameters {
+    int wtime = 0, btime = 0;
+    int winc = 0, binc = 0;
+    int movestogo = 0;
+    int depth = 0;
+    int movetime = 0;
+    bool infinite = false;
+};
 
 class Engine {
-    static constexpr int16_t CHECKMATE = 16384;
+    static constexpr int MAX_DEPTH = 100;
+    static constexpr int CHECKMATE = 16384;
     static constexpr std::array<int, 12> piece_value {
         100,  320,  330,  500,  900, 0,
         -100, -320, -330, -500, -900, 0
@@ -87,16 +99,6 @@ class Engine {
             -30, -40, -40, -50, -50, -40, -40, -30
         }, // white king mittelspiel
         {
-            -50, -30, -30, -30, -30, -30, -30, -50,
-            -30, -30,   0,   0,   0,   0, -30, -30,
-            -30, -10,  20,  30,  30,  20, -10, -30,
-            -30, -10,  30,  40,  40,  30, -10, -30,
-            -30, -10,  30,  40,  40,  30, -10, -30,
-            -30, -10,  20,  30,  30,  20, -10, -30,
-            -30, -20, -10,   0,   0, -10, -20, -30,
-            -50, -40, -30, -20, -20, -30, -40, -50
-        }, // white king endspiel
-        {
               0,   0,   0,   0,   0,   0,   0,   0,
             -50, -50, -50, -50, -50, -50, -50, -50,
             -10, -10, -20, -30, -30, -20, -10, -10,
@@ -157,6 +159,16 @@ class Engine {
             -20, -30, -10,   0,   0, -10, -30, -20
         }, // black king mittelspiel
         {
+            -50, -30, -30, -30, -30, -30, -30, -50,
+            -30, -30,   0,   0,   0,   0, -30, -30,
+            -30, -10,  20,  30,  30,  20, -10, -30,
+            -30, -10,  30,  40,  40,  30, -10, -30,
+            -30, -10,  30,  40,  40,  30, -10, -30,
+            -30, -10,  20,  30,  30,  20, -10, -30,
+            -30, -20, -10,   0,   0, -10, -20, -30,
+            -50, -40, -30, -20, -20, -30, -40, -50
+        }, // white king endspiel
+        {
             50,  40,  30,  20,  20,  30,  40,  50,
             30,  20,  10,   0,   0,  10,  20,  30,
             30,  10, -20, -30, -30, -20,  10,  30,
@@ -167,14 +179,21 @@ class Engine {
             50,  30,  30,  30,  30,  30,  30,  50
         } // black king endspiel
     }};
+    static constexpr int WHITE_KING_ENDSPIEL = 12;
+    static constexpr int BLACK_KING_ENDSPIEL = 13;
 
     mutable TranspositionTable tt;
+    mutable std::chrono::high_resolution_clock::time_point start_;
+    mutable int allocated_time_ = 0;
+    mutable std::atomic<bool> stop_ = false;
+    mutable std::atomic<int> nodes_ = 0;
 
 public:
     Engine() {};
-    Move choose_move(Board& board, int max_depth, int time_limit_ms) const;
+    Move choose_move(Board& board, const SearchParameters& sp) const;
     void tt_resize(int size_mb) const { tt.resize(size_mb); }
     void tt_clear() const { tt.clear(); }
+    void stop() const { stop_ = true; }
 
 private:
     int search(Board& board, int depth, int alpha, int beta) const;
@@ -182,4 +201,6 @@ private:
     int evaluate(const Board& board) const;
     void order_moves(MoveList& list, Move tt_move) const;
     bool is_endspiel(const Board& board) const;
+    int calculate_time(const SearchParameters& sp, bool white) const;
+    int elapsed_ms() const;
 };
