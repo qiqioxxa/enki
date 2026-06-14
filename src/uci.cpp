@@ -2,6 +2,7 @@
 #include "movegen.h"
 #include "perft.h"
 #include "utils.h"
+#include <filesystem>
 #include <iostream>
 #include <print>
 
@@ -29,7 +30,7 @@ void UCI::run() {
 
 void UCI::handle_uci() {
     uci_mode = true;
-    std::println("id name Metis");
+    std::println("id name Enki");
     std::println("id author qiqioxxa");
     std::println("option name Hash type spin default 16 min 1 max 8192");
     std::println("uciok");
@@ -127,22 +128,27 @@ void UCI::handle_go(std::istringstream& iss) {
                 catch(...) { return; }
 
                 std::array<long long, 7> stats = perft(board, depth, true);
-                std::array<long long, 7> correction = perft(board, depth - 1, true);
 
                 std::println("Nodes:      {}", stats[0]);
-                std::println("Captures:   {}", stats[1] - correction[1]);
-                std::println("EPs:        {}", stats[2] - correction[2]);
-                std::println("Castles:    {}", stats[3] - correction[3]);
-                std::println("Promotions: {}", stats[4] - correction[4]);
-                std::println("Checks:     {}", stats[5] - correction[5]);
+                std::println("Captures:   {}", stats[1]);
+                std::println("EPs:        {}", stats[2]);
+                std::println("Castles:    {}", stats[3]);
+                std::println("Promotions: {}", stats[4]);
+                std::println("Checks:     {}", stats[5]);
                 std::println("Mates:      {}", stats[6]);
                 std::fflush(stdout);
             }
             return;
         }
         if (option == "tests") {
-            run_tests("tests/perft_positions.txt");
-            std::fflush(stdout);
+            std::string path_kw;
+            std::filesystem::path path;
+            if (iss >> path_kw >> path) {
+                if (path_kw != "path" || !std::filesystem::exists(path)) return;
+                
+                run_tests(path);
+                std::fflush(stdout);
+            }
             return;
         }
         iss.seekg(pos);

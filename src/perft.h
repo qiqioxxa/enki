@@ -41,14 +41,6 @@ std::array<long long, 7> perft(Board& board, int depth, bool all_stats = false) 
     for (Move move : list) {
         UnmakeInfo info = board.make_move(move);
         
-        if (all_stats) {
-            stats[1] += (move.target_piece() != EMPTY) ? 1 : 0;
-            stats[2] += move.is_en_passant() ? 1 : 0;
-            stats[3] += move.is_castling() ? 1 : 0;
-            stats[4] += move.promotion() != EMPTY ? 1 : 0;
-            stats[5] += king_in_check(board) ? 1 : 0;
-        }
-        
         std::array<long long, 7> sub = perft(board, depth - 1, all_stats);
         for (int i = 0; i < 7; i++) stats[i] += sub[i];
 
@@ -83,10 +75,12 @@ void perft_divide(Board& board, int depth) {
 void run_tests(const std::string& file_path) {
     std::ifstream file(file_path);
     std::string line;
-    int i = 1;
-    auto total_time = 0;
-    long long total_nodes = 0;
+
     long long expected_nodes = 0;
+    long long total_nodes = 0;
+    long long total_time = 0;
+    int position_num = 1;
+
     while (std::getline(file, line)) {
         std::istringstream iss(line);
         std::string fen, depth, result;
@@ -97,7 +91,7 @@ void run_tests(const std::string& file_path) {
 
         expected_nodes += std::stoi(result);
 
-        std::println("Testing position {}: {}|{}|{}", i, fen, depth, result);
+        std::println("Testing position {}: {}|{}|{}", position_num, fen, depth, result);
 
         Board board;
         board.set_position(fen);
@@ -107,14 +101,14 @@ void run_tests(const std::string& file_path) {
         auto end = std::chrono::high_resolution_clock::now();
         auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
 
-        total_time += duration;
         total_nodes += nodes;
+        total_time += duration;
 
-        if (std::to_string(nodes) != result ) {
+        if (std::to_string(nodes) != result) {
             std::println("❗️ Test failed! Expected {} but got {}", result, nodes);
         }
 
-        i++;
+        position_num++;
     }
 
     std::println("Expected:    {}", expected_nodes);
