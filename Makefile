@@ -7,7 +7,7 @@ BUILDDIR = build
 SOURCES  = $(wildcard $(SRCDIR)/*.cpp)
 HEADERS  = $(wildcard $(SRCDIR)/*.h)
 
-TARGET ?= metis
+TARGET ?= enki
 OUT     = $(BUILDDIR)/$(TARGET)
 
 $(OUT): $(SOURCES) $(HEADERS) | $(BUILDDIR)
