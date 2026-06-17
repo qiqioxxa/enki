@@ -20,9 +20,11 @@ Move Engine::choose_move(Board& board, const SearchParameters& sp) const {
     Move best_move = root_list[0];
     int best_score = -CHECKMATE * 2;
     int delta = 50;
+
+    int depth = 1;
     int max_depth = sp.depth != 0 ? sp.depth : MAX_DEPTH;
 
-    for (int depth = 1; depth <= max_depth; depth++) {
+    for (; depth <= max_depth; depth++) {
         if (!sp.infinite && elapsed_ms() > allocated_time_ * 0.6) break;
 
         int alpha = best_score - delta;
@@ -32,43 +34,35 @@ Move Engine::choose_move(Board& board, const SearchParameters& sp) const {
             beta = CHECKMATE;
         }
 
-        int score = search(board, depth, alpha, beta);
+        int score = search(board, depth, 0, alpha, beta);
 
         while (!stop_ && (score <= alpha || score >= beta)) {
             if (score <= alpha) {
-                beta = (alpha + beta) / 2;
                 alpha -= delta;
             } else {
-                alpha = (alpha + beta) / 2;
                 beta += delta;
             }
             delta += delta / 2;
-            score = search(board, depth, alpha, beta);
+            score = search(board, depth, 0, alpha, beta);
         }
 
-        if (stop_) break;
+        if (stop_) {
+            depth--;
+            break;
+        }
 
-        TTentry* entry = tt.probe(board.zobrist_key());
+        TTentry* entry = tt_.probe(board.zobrist_key());
         if (entry && entry->key == board.zobrist_key() && !entry->best_move.is_null_move()) {
             best_move = entry->best_move;
             best_score = score;
         }
         delta = 50;
 
-        int time = elapsed_ms();
-        int nps = time != 0 ? nodes_ / time * 1000 : 0;
-        
-        std::string score_str;
-        if (std::abs(best_score) > CHECKMATE - MAX_DEPTH) {
-            int mate_in = (CHECKMATE - std::abs(best_score) + 1) / 2; // doesn't work
-            score_str = std::format("mate {}", mate_in);
-        } else {
-            score_str = std::format("cp {}", best_score);
-        }
+        print_info(depth, best_score, best_move);
+    }
 
-        std::println("info depth {} score {} nodes {} nps {} hashfull {} time {}",
-            depth, score_str, nodes_.load(), nps, tt.hashfull(), time);
-        std::fflush(stdout);
+    if (stop_) {
+        print_info(depth, best_score, best_move);
     }
 
     return best_move;
@@ -76,25 +70,33 @@ Move Engine::choose_move(Board& board, const SearchParameters& sp) const {
 
 // PRIVATE
 
-int Engine::search(Board& board, int depth, int alpha, int beta) const {
+int Engine::search(Board& board, int depth, int ply, int alpha, int beta) const {
     if ((nodes_.fetch_add(1) & 4095) == 0) {
         if (elapsed_ms() >= allocated_time_) stop_ = true;
     }
     if (stop_) return 0;
 
-    TTentry* entry = tt.probe(board.zobrist_key());
-    if (entry && entry->depth >= depth) {
-        if (entry->flag == TTentry::EXACT) return entry->score;
-        if (entry->flag == TTentry::LOWERBOUND && entry->score >= beta) return entry->score;
-        if (entry->flag == TTentry::UPPERBOUND && entry->score <= alpha) return entry->score;
+    TTentry* entry = tt_.probe(board.zobrist_key());
+    if (entry && entry->key == board.zobrist_key() && entry->depth >= depth) {
+        int tt_score = entry->score;
+
+        if (tt_score > CHECKMATE - MAX_DEPTH) {
+            tt_score -= ply;
+        } else if (tt_score < -CHECKMATE + MAX_DEPTH) {
+            tt_score += ply;
+        }
+
+        if (entry->flag == TTentry::EXACT) return tt_score;
+        if (entry->flag == TTentry::LOWERBOUND && tt_score >= beta) return tt_score;
+        if (entry->flag == TTentry::UPPERBOUND && tt_score <= alpha) return tt_score;
     }
 
     MoveList list;
     MoveGen::generate_moves(board, list);
 
     if (list.size == 0) {
-        int score = king_in_check(board) ? -CHECKMATE - depth : 0;
-        tt.record(board.zobrist_key(), Move{}, score, depth, TTentry::EXACT);
+        int score = king_in_check(board) ? -CHECKMATE + ply : 0;
+        tt_.record(board.zobrist_key(), Move{}, score, depth, TTentry::EXACT);
         return score;
     }
     if (depth == 0) return quiescence(board, alpha, beta);
@@ -108,8 +110,10 @@ int Engine::search(Board& board, int depth, int alpha, int beta) const {
 
     for (Move move : list) {
         UnmakeInfo info = board.make_move(move);
-        int score = -search(board, depth - 1, -beta, -alpha);
+        int score = -search(board, depth - 1, ply + 1, -beta, -alpha);
         board.unmake_move(move, info);
+
+        if (stop_) return 0;
 
         if (score > best_score) {
             best_score = score;
@@ -118,15 +122,23 @@ int Engine::search(Board& board, int depth, int alpha, int beta) const {
         if (score > alpha) {
             alpha = score;
             if (alpha >= beta) {
-                tt.record(board.zobrist_key(), best_move, best_score, depth, TTentry::LOWERBOUND);
+                tt_.record(board.zobrist_key(), best_move, best_score, depth, TTentry::LOWERBOUND);
                 return best_score;
             }
         }
     }
 
+    int value_to_store = best_score;
+
+    if (value_to_store > CHECKMATE - MAX_DEPTH) {
+        value_to_store += ply; 
+    } else if (value_to_store < -CHECKMATE + MAX_DEPTH) {
+        value_to_store -= ply;
+    }
+
     TTentry::TTflag tt_flag = (best_score <= original_alpha) ? TTentry::UPPERBOUND : TTentry::EXACT;
 
-    tt.record(board.zobrist_key(), best_move, best_score, depth, tt_flag);
+    tt_.record(board.zobrist_key(), best_move, value_to_store, depth, tt_flag);
     return best_score;
 }
 int Engine::quiescence(Board& board, int alpha, int beta) const {
@@ -152,7 +164,7 @@ int Engine::quiescence(Board& board, int alpha, int beta) const {
     order_moves(list, Move{});
 
     for (Move move : list) {
-        int victim_val = piece_value[move.target_piece()];
+        int victim_val = std::abs(piece_value[move.target_piece()]);
         if (stand_pat + victim_val + 200 < alpha) continue;
 
         UnmakeInfo info = board.make_move(move);
@@ -223,4 +235,22 @@ int Engine::calculate_time(const SearchParameters& sp, bool white) const {
 int Engine::elapsed_ms() const {
     return std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now() - start_).count();
+}
+
+void Engine::print_info(int depth, int best_score, Move best_move) const {
+    int time = elapsed_ms();
+    int nps = time != 0 ? nodes_ / time * 1000 : 0;
+    
+    std::string score_str;
+    if (std::abs(best_score) > CHECKMATE - MAX_DEPTH) {
+        int mate_in = (CHECKMATE - std::abs(best_score) + 1) / 2;
+        if (best_score < 0) mate_in = -mate_in;
+        score_str = std::format("mate {}", mate_in);
+    } else {
+        score_str = std::format("cp {}", best_score);
+    }
+
+    std::println("info depth {} score {} nodes {} nps {} hashfull {} time {} pv {}",
+        depth, score_str, nodes_.load(), nps, tt_.hashfull(), time, best_move.to_string());
+    std::fflush(stdout);
 }

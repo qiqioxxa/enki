@@ -6,6 +6,7 @@
 #include <iostream>
 #include <print>
 
+// PUBLIC
 
 void UCI::run() {
     std::string line;
@@ -27,6 +28,8 @@ void UCI::run() {
         else if (!uci_mode)           std::println("Unknown command: \"{}\"", line);
     }
 }
+
+// PRIVATE
 
 void UCI::handle_uci() {
     uci_mode = true;
