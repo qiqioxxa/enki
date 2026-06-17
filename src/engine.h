@@ -182,7 +182,7 @@ class Engine {
     static constexpr int WHITE_KING_ENDSPIEL = 12;
     static constexpr int BLACK_KING_ENDSPIEL = 13;
 
-    mutable TranspositionTable tt;
+    mutable TranspositionTable tt_;
     mutable std::chrono::high_resolution_clock::time_point start_;
     mutable int allocated_time_ = 0;
     mutable std::atomic<bool> stop_ = false;
@@ -191,16 +191,17 @@ class Engine {
 public:
     Engine() {};
     Move choose_move(Board& board, const SearchParameters& sp) const;
-    void tt_resize(int size_mb) const { tt.resize(size_mb); }
-    void tt_clear() const { tt.clear(); }
+    void tt_resize(int size_mb) const { tt_.resize(size_mb); }
+    void tt_clear() const { tt_.clear(); }
     void stop() const { stop_ = true; }
 
 private:
-    int search(Board& board, int depth, int alpha, int beta) const;
+    int search(Board& board, int depth, int ply, int alpha, int beta) const;
     int quiescence(Board& board, int alpha, int beta) const;
     int evaluate(const Board& board) const;
     void order_moves(MoveList& list, Move tt_move) const;
     bool is_endspiel(const Board& board) const;
     int calculate_time(const SearchParameters& sp, bool white) const;
     int elapsed_ms() const;
+    void print_info(int depth, int best_score, Move best_move) const;
 };
