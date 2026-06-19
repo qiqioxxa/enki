@@ -2,7 +2,6 @@
 #include "gamestate.h"
 #include "movegen.h"
 #include "utils.h"
-#include <chrono>
 #include <print>
 
 // PUBLIC
@@ -71,7 +70,7 @@ Move Engine::choose_move(Board& board, const SearchParameters& sp) const {
 // PRIVATE
 
 int Engine::search(Board& board, int depth, int ply, int alpha, int beta) const {
-    if ((nodes_.fetch_add(1) & 4095) == 0) {
+    if ((nodes_++ & 4095) == 0) {
         if (elapsed_ms() >= allocated_time_) stop_ = true;
     }
     if (stop_) return 0;
@@ -93,6 +92,21 @@ int Engine::search(Board& board, int depth, int ply, int alpha, int beta) const 
         if (entry->flag == TTentry::UPPERBOUND && tt_score <= alpha) return tt_score;
     }
 
+    int static_eval = evaluate(board);
+
+    if (depth >= 3 && static_eval >= beta && !king_in_check(board)) {
+        bool turn = board.white_turn();
+        if ((board.get_knights(turn) | board.get_bishops(turn) | board.get_rooks(turn) | board.get_queens(turn)) != 0) {
+            UnmakeInfo info = board.make_null_move();
+            int score = -search(board, depth - 3, ply + 1, -beta, -beta + 1);
+            board.unmake_null_move(info);
+
+            if (score >= beta) return score;
+        }
+    }
+
+    if (depth == 0) return quiescence(board, alpha, beta);
+
     MoveList list;
     MoveGen::generate_moves(board, list);
 
@@ -101,7 +115,6 @@ int Engine::search(Board& board, int depth, int ply, int alpha, int beta) const 
         tt_.record(board.zobrist_key(), Move{}, score, depth, TTentry::EXACT);
         return score;
     }
-    if (depth == 0) return quiescence(board, alpha, beta);
 
     Move tt_move = entry ? entry->best_move : Move{};
     order_moves(list, tt_move);
@@ -253,6 +266,6 @@ void Engine::print_info(int depth, int best_score, Move best_move) const {
     }
 
     std::println("info depth {} score {} nodes {} nps {} hashfull {} time {} pv {}",
-        depth, score_str, nodes_.load(), nps, tt_.hashfull(), time, best_move.to_string());
+        depth, score_str, nodes_, nps, tt_.hashfull(), time, best_move.to_string());
     std::fflush(stdout);
 }
