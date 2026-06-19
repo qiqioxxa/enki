@@ -80,7 +80,7 @@ UnmakeInfo Board::make_null_move() {
 void Board::unmake_null_move(const UnmakeInfo& info) {
     if (info.en_passant_square != -1) {
         key_ ^= Zobrist::en_passant[16];
-        key_ ^= Zobrist::en_passant[en_passant_square_ - 24];
+        key_ ^= Zobrist::en_passant[info.en_passant_square - 24];
     }
     key_ ^= Zobrist::turn;
 

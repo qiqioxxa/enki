@@ -3,7 +3,7 @@
 #include "board.h"
 #include "ttable.h"
 #include "types.h"
-#include <atomic>
+#include <chrono>
 
 
 struct SearchParameters {
@@ -185,8 +185,8 @@ class Engine {
     mutable TranspositionTable tt_;
     mutable std::chrono::high_resolution_clock::time_point start_;
     mutable int allocated_time_ = 0;
-    mutable std::atomic<bool> stop_ = false;
-    mutable std::atomic<int> nodes_ = 0;
+    mutable bool stop_ = false;
+    mutable int nodes_ = 0;
 
 public:
     Engine() {};
