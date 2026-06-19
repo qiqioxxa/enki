@@ -76,5 +76,4 @@ struct UnmakeInfo {
     uint8_t black_king_square;
     uint8_t castling_rights;
     uint8_t halfmove_clock;
-    uint8_t fullmove_clock;
 };

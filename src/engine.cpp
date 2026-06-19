@@ -76,6 +76,8 @@ int Engine::search(Board& board, int depth, int ply, int alpha, int beta) const 
     }
     if (stop_) return 0;
 
+    if (board.halfmove_clock() >= 100 || ply > 0 && board.is_repetition()) return 0;
+
     TTentry* entry = tt_.probe(board.zobrist_key());
     if (entry && entry->key == board.zobrist_key() && entry->depth >= depth) {
         int tt_score = entry->score;

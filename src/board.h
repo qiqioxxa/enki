@@ -16,9 +16,10 @@ class alignas(64) Board {
     int black_king_square_ = -1;
     int castling_rights_ = 0b0000; // KQkq
     int halfmove_clock_ = 0;
-    int fullmove_clock_ = 1;
+    int game_ply_ = 0;
     uint64_t key_ = 0;
-
+    std::array<uint64_t, 1024> positions_;
+    
 
 public:
     Board(bool standard = true);
@@ -47,11 +48,13 @@ public:
     constexpr int king_square(bool white) const { return white ? white_king_square_ : black_king_square_; }
     constexpr int castling_rights() const { return castling_rights_; }
     constexpr int halfmove_clock() const { return halfmove_clock_; }
-    constexpr int fullmove_clock() const { return fullmove_clock_; }
+    constexpr int game_ply() const { return game_ply_; }
     constexpr uint64_t zobrist_key() const { return key_; };
     constexpr Piece piece_at(int square) const { return square_to_piece_[square]; }
 
     void set_position(const std::string& fen);
+
+    bool is_repetition() const;
 
     std::string to_string() const;
     std::string to_string_compat() const;
