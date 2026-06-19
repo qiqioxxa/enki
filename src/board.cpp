@@ -24,7 +24,8 @@ UnmakeInfo Board::make_move(Move move) {
     info.black_king_square = black_king_square_;
     info.castling_rights = castling_rights_;
     info.halfmove_clock = halfmove_clock_;
-    info.fullmove_clock = fullmove_clock_;
+
+    positions_[game_ply_] = key_;
 
     update_bitboards(move);
     update_mailbox(move);
@@ -50,7 +51,7 @@ void Board::unmake_move(Move move, const UnmakeInfo& info) {
     black_king_square_ = info.black_king_square;
     castling_rights_ = info.castling_rights;
     halfmove_clock_ = info.halfmove_clock;
-    fullmove_clock_ = info.fullmove_clock;
+    game_ply_--;
     white_turn_ = !white_turn_;
 
     update_bitboards(move);
@@ -61,7 +62,6 @@ UnmakeInfo Board::make_null_move() {
     UnmakeInfo info;
     info.en_passant_square = en_passant_square_;
     info.halfmove_clock = halfmove_clock_;
-    info.fullmove_clock = fullmove_clock_;
 
     if (en_passant_square_ != -1) {
         key_ ^= Zobrist::en_passant[16];
@@ -70,7 +70,7 @@ UnmakeInfo Board::make_null_move() {
     en_passant_square_ = -1;
 
     halfmove_clock_++;
-    if (!white_turn_) fullmove_clock_++;
+    game_ply_++;
 
     key_ ^= Zobrist::turn;
     white_turn_ = !white_turn_;
@@ -86,7 +86,7 @@ void Board::unmake_null_move(const UnmakeInfo& info) {
 
     en_passant_square_ = info.en_passant_square;
     halfmove_clock_ = info.halfmove_clock;
-    fullmove_clock_ = info.fullmove_clock;
+    game_ply_--;
     white_turn_ = !white_turn_;
 }
 
@@ -110,7 +110,7 @@ void Board::set_position(const std::string& fen) {
     en_passant_square_ = -1;
     castling_rights_ = 0;
     halfmove_clock_ = 0;
-    fullmove_clock_ = 1;
+    game_ply_ = 0;
     key_ = 0;
     
     int rank = 7;
@@ -178,10 +178,21 @@ void Board::set_position(const std::string& fen) {
     
     halfmove_clock_ = std::stoi(halfmove);
     
-    fullmove_clock_ = std::stoi(fullmove);
+    game_ply_ = std::stoi(fullmove) * 2 + !white_turn_;
 
     key_ = compute_zobrist();
 }
+
+bool Board::is_repetition() const {
+    int start = std::max(0, game_ply_ - halfmove_clock_);
+    for (int i = game_ply_ - 2; i >= start; i -= 2) {
+        if (positions_[i] == key_) {
+            return true;
+        }
+    }
+    return false;
+}
+
 std::string Board::to_string() const {
     static const std::string symbols[13] = {
         "♟", "♞", "♝", "♜", "♛", "♚",
@@ -293,7 +304,7 @@ std::string Board::to_fen() const {
 
     fen += std::to_string(halfmove_clock_);
     fen += " ";
-    fen += std::to_string(fullmove_clock_);
+    fen += std::to_string(game_ply_ / 2);
 
     return fen;
 }
@@ -465,7 +476,7 @@ void Board::update_state(Move move) {
     } else {
         halfmove_clock_++;
     }
-    if (!white_turn_) fullmove_clock_++;
+    game_ply_++;
 
     white_turn_ = !white_turn_;
 }
