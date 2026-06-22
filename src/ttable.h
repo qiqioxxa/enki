@@ -49,9 +49,14 @@ public:
         return (entry->key == key) ? entry : nullptr;
     }
 
-    void record(uint64_t key, Move move, uint16_t score, uint8_t depth, TTentry::TTflag flag) {
+    void record(uint64_t key, Move move, int16_t score, uint8_t depth, TTentry::TTflag flag) {
         TTentry* entry = &table[key & mask];
-        if (depth >= entry->depth) {
+
+        if (entry->key == key && move.is_null_move()) {
+            move = entry->best_move;
+        }
+
+        if (entry->key != key || depth >= entry->depth) {
             entry->key = key;
             entry->best_move = move;
             entry->score = score;
