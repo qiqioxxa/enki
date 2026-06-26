@@ -181,6 +181,8 @@ void Board::set_position(const std::string& fen) {
     game_ply_ = std::stoi(fullmove) * 2 + !white_turn_;
 
     key_ = compute_zobrist();
+
+    std::fill(positions_.begin(), positions_.end(), 0);
 }
 
 bool Board::is_repetition() const {
