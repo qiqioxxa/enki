@@ -21,6 +21,7 @@ class Engine {
     int allocated_time_ = 0;
     bool stop_ = false;
     int nodes_ = 0;
+    uint8_t generation_ = 0;
 
 public:
     Engine() {};
@@ -37,7 +38,9 @@ private:
     bool is_endspiel(const Board& board) const;
     int calculate_time(const SearchParameters& sp, bool white) const;
     int elapsed_ms() const;
-    void print_info(int depth, int best_score, Move best_move) const;
+
+    void print_info(int depth, int best_score, Board& board) const;
+    std::string pv_line_from_tt(Board& board, int depth) const;
 
     int score_to_tt(int score, int ply) const;
     int score_from_tt(int tt_score, int ply) const;

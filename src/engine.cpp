@@ -2,12 +2,14 @@
 #include "gamestate.h"
 #include "movegen.h"
 #include "utils.h"
+#include <climits>
 #include <cmath>
+#include <format>
 #include <print>
 
 
 namespace {
-    constexpr int MAX_DEPTH = 200;
+    constexpr int MAX_DEPTH = 255;
     constexpr int CHECKMATE = 16384;
 
     constexpr std::array<int, 13> piece_value {
@@ -194,6 +196,7 @@ Move Engine::choose_move(Board& board, const SearchParameters& sp) {
     allocated_time_ = calculate_time(sp, board.white_turn());
     stop_ = false;
     nodes_ = 0;
+    generation_ = (generation_ + 1) & 63;
 
     MoveList root_list;
     MoveGen::generate_moves(board, root_list);
@@ -235,7 +238,7 @@ Move Engine::choose_move(Board& board, const SearchParameters& sp) {
             break;
         }
 
-        TTentry* entry = tt_.probe(board.zobrist_key());
+        const TTentry* entry = tt_.probe(board.zobrist_key());
         if (entry && entry->key == board.zobrist_key() && !entry->best_move.is_null_move()) {
             best_move = entry->best_move;
         }
@@ -243,11 +246,11 @@ Move Engine::choose_move(Board& board, const SearchParameters& sp) {
 
         delta = 50;
 
-        print_info(depth, best_score, best_move);
+        print_info(depth, best_score, board);
     }
 
     if (stop_) {
-        print_info(depth, best_score, best_move);
+        print_info(depth, best_score, board);
     }
 
     return best_move;
@@ -256,6 +259,10 @@ Move Engine::choose_move(Board& board, const SearchParameters& sp) {
 // PRIVATE
 
 int Engine::search(Board& board, int depth, int ply, int alpha, int beta) {
+    alpha = std::max(alpha, -CHECKMATE + ply);
+    beta = std::min(beta, CHECKMATE - ply - 1);
+    if (alpha >= beta) return alpha;
+
     if ((nodes_++ & 4095) == 0) {
         if (elapsed_ms() >= allocated_time_) stop_ = true;
     }
@@ -263,7 +270,7 @@ int Engine::search(Board& board, int depth, int ply, int alpha, int beta) {
 
     if (board.halfmove_clock() >= 100 || ply > 0 && board.is_repetition()) return 0;
 
-    TTentry* entry = tt_.probe(board.zobrist_key());
+    const TTentry* entry = tt_.probe(board.zobrist_key());
     if (entry && entry->key == board.zobrist_key() && entry->depth >= depth) {
         int tt_score = score_from_tt(entry->score, ply);
 
@@ -287,7 +294,7 @@ int Engine::search(Board& board, int depth, int ply, int alpha, int beta) {
         }
     }
 
-    // reverse futility pruning
+    // static null-move pruning (aka reverse futility pruning)
     if (depth <= 2 && !in_check) {
         int margin = 100 * depth;
         if (static_eval - margin >= beta) {
@@ -302,19 +309,21 @@ int Engine::search(Board& board, int depth, int ply, int alpha, int beta) {
 
     if (list.size == 0) {
         int score = king_in_check(board) ? -CHECKMATE + ply : 0;
-        tt_.record(board.zobrist_key(), Move{}, score_to_tt(score, ply), depth, TTentry::EXACT);
+        tt_.record(board.zobrist_key(), Move{}, score_to_tt(score, ply), depth, TTentry::EXACT, generation_);
         return score;
     }
 
     Move tt_move = entry ? entry->best_move : Move{};
     order_moves(list, tt_move);
 
-    int best_score = -CHECKMATE * 2;
     Move best_move = Move{};
+    int best_score = -CHECKMATE * 2;
     int original_alpha = alpha;
 
     for (int i = 0; i < list.size; i++) {
-        UnmakeInfo info = board.make_move(list[i]);
+        Move move = list[i];
+
+        UnmakeInfo info = board.make_move(move);
 
         bool gives_check = king_in_check(board);
         int score;
@@ -324,9 +333,9 @@ int Engine::search(Board& board, int depth, int ply, int alpha, int beta) {
             score = -search(board, depth - 1, ply + 1, -beta, -alpha);
             
         } else {
-            // late move reduction
+            // late move depth reduction + zero window
             int reduction = (i > 3 && depth >= 3 && !in_check && !gives_check && 
-                            list[i].target_piece() == EMPTY && list[i].promotion() == EMPTY
+                            move.target_piece() == EMPTY && move.promotion() == EMPTY
                             ? std::min(LMR_table[std::min(depth, 63)][std::min(i, 63)], depth - 1) : 0);
 
             score = -search(board, depth - 1 - reduction, ply + 1, -alpha - 1, -alpha);
@@ -340,26 +349,25 @@ int Engine::search(Board& board, int depth, int ply, int alpha, int beta) {
             }
         }
     
-        board.unmake_move(list[i], info);
+        board.unmake_move(move, info);
 
         if (stop_) return 0;
 
         if (score > best_score) {
+            best_move = move;
             best_score = score;
-            best_move = list[i];
         }
         if (score > alpha) {
             alpha = score;
-            if (alpha >= beta) {
-                tt_.record(board.zobrist_key(), best_move, score_to_tt(best_score, ply), depth, TTentry::LOWERBOUND);
-                return best_score;
-            }
+        }
+        if (score >= beta) {
+            tt_.record(board.zobrist_key(), best_move, score_to_tt(best_score, ply), depth, TTentry::LOWERBOUND, generation_);
+            return best_score;
         }
     }
 
     TTentry::TTflag tt_flag = (best_score <= original_alpha) ? TTentry::UPPERBOUND : TTentry::EXACT;
-    Move move_to_store = (tt_flag == TTentry::UPPERBOUND) ? Move{} : best_move;
-    tt_.record(board.zobrist_key(), move_to_store, score_to_tt(best_score, ply), depth, tt_flag);
+    tt_.record(board.zobrist_key(), best_move, score_to_tt(best_score, ply), depth, tt_flag, generation_);
 
     return best_score;
 }
@@ -460,7 +468,7 @@ int Engine::elapsed_ms() const {
         std::chrono::steady_clock::now() - start_).count();
 }
 
-void Engine::print_info(int depth, int best_score, Move best_move) const {
+void Engine::print_info(int depth, int best_score, Board& board) const {
     int time = elapsed_ms();
     int nps = time != 0 ? nodes_ / time * 1000 : 0;
     
@@ -473,9 +481,37 @@ void Engine::print_info(int depth, int best_score, Move best_move) const {
         score_str = std::format("cp {}", best_score);
     }
 
+    std::string pv_line = pv_line_from_tt(board, depth);
+    
     std::println("info depth {} score {} nodes {} nps {} hashfull {} time {} pv {}",
-        depth, score_str, nodes_, nps, tt_.hashfull(), time, best_move.to_string());
+        depth, score_str, nodes_, nps, tt_.hashfull(generation_), time, pv_line);
     std::fflush(stdout);
+}
+std::string Engine::pv_line_from_tt(Board& board, int depth) const {
+    std::string pv_str = "";
+    std::vector<std::pair<Move, UnmakeInfo>> made_moves;
+
+    for (int i = 0; i < depth; i++) {
+        const TTentry* entry = tt_.probe(board.zobrist_key());
+
+        if (!entry || entry->best_move.is_null_move()) {
+            break;
+        }
+
+        Move pv_move = entry->best_move;
+
+        if (!pv_str.empty()) pv_str += " ";
+        pv_str += pv_move.to_string();
+
+        UnmakeInfo info = board.make_move(pv_move);
+        made_moves.emplace_back(pv_move, info);
+    }
+
+    for (auto it = made_moves.rbegin(); it != made_moves.rend(); it++) {
+        board.unmake_move(it->first, it->second);
+    }
+
+    return pv_str;
 }
 
 int Engine::score_to_tt(int score, int ply) const {
