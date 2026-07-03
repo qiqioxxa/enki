@@ -64,7 +64,7 @@ public:
     void record(uint64_t key, Move move, int16_t score, uint8_t depth, TTentry::TTflag flag, uint8_t generation) {
         Bucket& bucket = table[key & mask];
 
-        // cache hit: overwriting
+        // hash match: overwriting
         for (TTentry& entry : bucket.entries) {
             if (key == entry.key) {
                 entry.best_move = move;
@@ -76,7 +76,7 @@ public:
             }
         }
 
-        // cache miss: selecting least valuable entry to overwrite
+        // hash collision: selecting least valuable entry to overwrite
         TTentry* candidate = nullptr;
         int max_age = 1;
         for (TTentry& entry : bucket.entries) {
@@ -84,7 +84,7 @@ public:
                 candidate = &entry;
                 break;
             } else {
-                int age = generation - entry.generation;
+                int age = (generation - entry.generation) & 63;
                 if (age > max_age) {
                     max_age = age;
                     candidate = &entry;

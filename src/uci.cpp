@@ -24,7 +24,7 @@ void UCI::run() {
         else if (cmd == "stop")       handle_stop();
         else if (cmd == "d")          handle_d();
         else if (cmd == "dd")         handle_dd();
-        else if (cmd == "quit")       return;
+        else if (cmd == "quit")       { handle_stop(); return; }
         else if (!uci_mode)           std::println("Unknown command: \"{}\"", line);
     }
 }
@@ -176,7 +176,8 @@ void UCI::handle_go(std::istringstream& iss) {
 
     search_thread = std::thread([this, sp]() {
         Move best_move = engine.choose_move(board, sp);
-        std::println("bestmove {}", best_move.to_string());
+        std::string best_move_str = best_move.is_null_move() ? "(none)" : best_move.to_string();
+        std::println("bestmove {}", best_move_str);
         std::fflush(stdout);
     });
 }
