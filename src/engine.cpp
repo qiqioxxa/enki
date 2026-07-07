@@ -1,7 +1,7 @@
 #include "engine.h"
-#include "gamestate.h"
 #include "movegen.h"
 #include "utils.h"
+#include <bit>
 #include <climits>
 #include <cmath>
 #include <format>
@@ -11,6 +11,7 @@
 namespace {
     constexpr int MAX_DEPTH = 255;
     constexpr int CHECKMATE = 16384;
+    constexpr int DRAW = 0;
 
     constexpr std::array<int, 13> piece_value {
         100,  320,  330,  500,  900, 0,
@@ -268,7 +269,7 @@ int Engine::search(Board& board, int depth, int ply, int alpha, int beta) {
     }
     if (stop_) return 0;
 
-    if (board.halfmove_clock() >= 100 || ply > 0 && board.is_repetition()) return 0;
+    if (board.halfmove_clock() >= 100 || ply > 0 && board.is_repetition() || board.is_insufficient_material()) return DRAW;
 
     const TTentry* entry = tt_.probe(board.zobrist_key());
     if (entry && entry->key == board.zobrist_key() && entry->depth >= depth) {
@@ -280,7 +281,7 @@ int Engine::search(Board& board, int depth, int ply, int alpha, int beta) {
     }
 
     int static_eval = evaluate(board);
-    bool in_check = king_in_check(board);
+    bool in_check = MoveGen::king_in_check(board);
 
     // null-move pruning
     if (depth >= 3 && static_eval >= beta && !in_check) {
@@ -308,7 +309,7 @@ int Engine::search(Board& board, int depth, int ply, int alpha, int beta) {
     MoveGen::generate_moves(board, list);
 
     if (list.size == 0) {
-        int score = king_in_check(board) ? -CHECKMATE + ply : 0;
+        int score = MoveGen::king_in_check(board) ? -CHECKMATE + ply : DRAW;
         tt_.record(board.zobrist_key(), Move{}, score_to_tt(score, ply), depth, TTentry::EXACT, generation_);
         return score;
     }
@@ -325,7 +326,7 @@ int Engine::search(Board& board, int depth, int ply, int alpha, int beta) {
 
         UnmakeInfo info = board.make_move(move);
 
-        bool gives_check = king_in_check(board);
+        bool gives_check = MoveGen::king_in_check(board);
         int score;
 
         // principal variation search
@@ -382,7 +383,7 @@ int Engine::quiescence(Board& board, int alpha, int beta) {
 
     if (list.size == 0) return alpha;
 
-    if (!king_in_check(board)) {
+    if (!MoveGen::king_in_check(board)) {
         int captures = 0;
         for (int i = 0; i < list.size; ++i) {
             if (list[i].target_piece() != EMPTY) {

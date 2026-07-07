@@ -55,9 +55,10 @@ public:
     void set_position(const std::string& fen);
 
     bool is_repetition() const;
+    bool is_insufficient_material() const;
 
-    std::string to_string() const;
-    std::string to_string_compat() const;
+    std::string to_string_ansi() const;
+    std::string to_string_ascii() const;
     std::string to_fen() const;
 
 private:

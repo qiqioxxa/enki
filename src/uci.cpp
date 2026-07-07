@@ -186,12 +186,12 @@ void UCI::handle_stop() {
     if (search_thread.joinable()) search_thread.join();
 }
 void UCI::handle_d() {
-    std::println("{}", board.to_string_compat());
+    std::println("{}", board.to_string_ascii());
     std::println("Fen: {}", board.to_fen());
     std::fflush(stdout);
 }
 void UCI::handle_dd() {
-    std::println("{}", board.to_string());
+    std::println("{}", board.to_string_ansi());
     std::println("Fen: {}", board.to_fen());
     std::fflush(stdout);
 }

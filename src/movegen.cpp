@@ -1,7 +1,5 @@
 #include "movegen.h"
 #include "attack_tables.h"
-#include "board.h"
-#include "types.h"
 #include "utils.h"
 
 
@@ -208,4 +206,8 @@ uint64_t MoveGen::get_pinned(const Board& board, uint64_t occupancy) {
     }
 
     return pinned;
+}
+
+bool MoveGen::king_in_check(const Board& board) {
+    return MoveGen::get_checkers(board, board.get_occupancy()) != 0;
 }

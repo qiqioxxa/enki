@@ -1,6 +1,7 @@
 #pragma once
 
 #include "board.h"
+#include "types.h"
 
 
 namespace MoveGen {
@@ -10,4 +11,6 @@ namespace MoveGen {
     bool is_square_attacked(const Board& board, int square, bool by_white, uint64_t occupancy);
     uint64_t get_checkers(const Board& board, uint64_t occupancy);
     uint64_t get_pinned(const Board& board, uint64_t occupancy);
+
+    bool king_in_check(const Board& board);
 }

@@ -1,7 +1,6 @@
 #pragma once
 
 #include "board.h"
-#include "gamestate.h"
 #include "movegen.h"
 #include <chrono>
 #include <fstream>
@@ -26,7 +25,7 @@ std::array<long long, 7> perft(Board& board, int depth, bool all_stats = false) 
             stats[4] += move.promotion() != EMPTY ? 1 : 0;
 
             UnmakeInfo info = board.make_move(move);
-            if (king_in_check(board)) {
+            if (MoveGen::king_in_check(board)) {
                 stats[5]++;
                 MoveList opponent_list;
                 MoveGen::generate_moves(board, opponent_list);

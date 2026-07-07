@@ -194,8 +194,35 @@ bool Board::is_repetition() const {
     }
     return false;
 }
+bool Board::is_insufficient_material() const {
+    if (get_pawns(true)  | get_rooks(true)  | get_queens(true) | 
+        get_pawns(false) | get_rooks(false) | get_queens(false)) {
+        return false;
+    }
 
-std::string Board::to_string() const {
+    uint64_t w_minors = get_bishops(true)  | get_knights(true);
+    uint64_t b_minors = get_bishops(false) | get_knights(false);
+
+    // K vs. K or KB vs. K or KN vs. K
+    if (!w_minors) return std::popcount(b_minors) <= 1;
+    if (!b_minors) return std::popcount(w_minors) <= 1;
+
+    uint64_t w_bishops = get_bishops(true);
+    uint64_t b_bishops = get_bishops(false);
+
+    // KB vs. KB (same color)
+    if (w_bishops == w_minors && b_bishops == b_minors) {
+        if (std::popcount(w_bishops) == 1 && std::popcount(b_bishops) == 1) {
+            int w_square = std::countr_zero(w_bishops);
+            int b_square = std::countr_zero(b_bishops);
+            return ((w_square + (w_square >> 3)) & 1) == ((b_square + (b_square >> 3)) & 1);
+        }
+    }
+
+    return false;
+}
+
+std::string Board::to_string_ansi() const {
     static const std::string symbols[13] = {
         "♟", "♞", "♝", "♜", "♛", "♚",
         "♟", "♞", "♝", "♜", "♛", "♚",
@@ -213,7 +240,7 @@ std::string Board::to_string() const {
         for (int file = 0; file < 8; file++) {
             int square = rank * 8 + file;
             Piece piece = piece_at(square);
-            bool light = ((square / 8 + square % 8) % 2 == 1);
+            bool light = (square + (square >> 3)) & 1;
 
             out += light ? "\033[48;5;215m" : "\033[48;5;94m";
             out += (piece <= 5) ? "\033[97m" : "\033[30m";
@@ -226,7 +253,7 @@ std::string Board::to_string() const {
 
     return out;
 }
-std::string Board::to_string_compat() const {
+std::string Board::to_string_ascii() const {
     static const char symbols[13] = {
         'P', 'N', 'B', 'R', 'Q', 'K',
         'p', 'n', 'b', 'r', 'q', 'k',
