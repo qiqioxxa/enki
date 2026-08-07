@@ -2,6 +2,7 @@
 
 #include "types.h"
 #include <algorithm>
+#include <array>
 #include <bit>
 #include <climits>
 #include <vector>

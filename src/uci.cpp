@@ -149,7 +149,7 @@ void UCI::handle_go(std::istringstream& iss) {
             if (iss >> path_kw >> path) {
                 if (path_kw != "path" || !std::filesystem::exists(path)) return;
                 
-                run_tests(path);
+                run_tests(path.string());
                 std::fflush(stdout);
             }
             return;

@@ -1,6 +1,7 @@
 #include "movegen.h"
 #include "attack_tables.h"
 #include "utils.h"
+#include <utility>
 
 
 void MoveGen::generate_moves(const Board& board, MoveList& list) {

@@ -1,5 +1,7 @@
 #pragma once
 
+#include <bit>
+#include <cctype>
 #include <cstdint>
 #include <string>
 
