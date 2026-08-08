@@ -1,25 +1,45 @@
-COMPILER  = clang++
-FLAGS     = -std=c++23 -O3
-PROFFLAGS = -std=c++23 -O3 -g -L/opt/homebrew/lib -lprofiler
+ifeq ($(OS), Windows_NT)
+    EXT ?= .exe
+endif
 
-SRCDIR   = src
-BUILDDIR = build
-SOURCES  = $(wildcard $(SRCDIR)/*.cpp)
-HEADERS  = $(wildcard $(SRCDIR)/*.h)
+ifeq ($(shell uname -s), Darwin)
+	CXX       ?= clang++
+	IS_DARWIN := 1
+else
+	CXX    ?= g++
+	LDLIBS ?= -lstdc++exp
+endif
 
-TARGET ?= enki
-OUT     = $(BUILDDIR)/$(TARGET)
+CXXFLAGS ?= -std=c++23 -O3
 
-$(OUT): $(SOURCES) $(HEADERS) | $(BUILDDIR)
-	$(COMPILER) $(FLAGS) $(SOURCES) -o $@
+SRCDIR   := src
+BUILDDIR := build
+TARGET   ?= enki
 
-profiling: $(SOURCES) $(HEADERS) | $(BUILDDIR)
-	$(COMPILER) $(PROFFLAGS) $(SOURCES) -o $(BUILDDIR)/profiling
+SOURCES := $(wildcard $(SRCDIR)/*.cpp)
+OBJECTS := $(patsubst $(SRCDIR)/%.cpp, $(BUILDDIR)/%.o, $(SOURCES))
+DEPENDS := $(OBJECTS:.o=.d)
+OUT     := $(BUILDDIR)/$(TARGET)$(EXT)
+
+.PHONY: all clean profiling
+
+all: $(OUT)
+
+$(OUT): $(OBJECTS) | $(BUILDDIR)
+		$(CXX) $(CXXFLAGS) $(OBJECTS) -o $@ $(LDLIBS)
+
+$(BUILDDIR)/%.o: $(SRCDIR)/%.cpp | $(BUILDDIR)
+		$(CXX) $(CXXFLAGS) -MMD -MP -c $< -o $@
+
+ifeq ($(IS_DARWIN), 1)
+profiling: $(SOURCES) | $(BUILDDIR)
+		$(CXX) $(CXXFLAGS) -g $(SOURCES) -o $(BUILDDIR)/profiling -L/opt/homebrew/lib -lprofiler
+endif
 
 $(BUILDDIR):
-	mkdir -p $@
+		mkdir -p $@
 
 clean:
-	rm -rf $(BUILDDIR)
+		rm -rf $(BUILDDIR)
 
-.PHONY: clean profiling
+-include $(DEPENDS)
