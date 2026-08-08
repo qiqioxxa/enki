@@ -191,9 +191,13 @@ void UCI::handle_d() {
     std::fflush(stdout);
 }
 void UCI::handle_dd() {
+#ifdef _WIN32
+    return handle_d();
+#else
     std::println("{}", board.to_string_ansi());
     std::println("Fen: {}", board.to_fen());
     std::fflush(stdout);
+#endif
 }
 
 Move UCI::parse_move_uci(const Board& board, const std::string& move_str) {
