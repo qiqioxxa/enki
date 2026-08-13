@@ -68,7 +68,7 @@ void MoveGen::generate_moves(const Board& board, MoveList& list) {
                 if (pushes & push1 & empty_squares) {
                     piece_moves |= push1;
                     if (square / 8 == (board.white_turn() ? 1 : 6)) {
-                        uint64_t push2 = (1ULL << (square + 2*dir));
+                        uint64_t push2 = (1ULL << (square + 2 * dir));
                         if (pushes & push2 & empty_squares) {
                             piece_moves |= push2;
                         }
@@ -108,7 +108,7 @@ void MoveGen::generate_moves(const Board& board, MoveList& list) {
                 Move move{square, target, EMPTY, true, false, moving_piece, board.piece_at(board.en_passant_square())};
                 uint64_t aftermove_occupancy = (occupancy ^ (1ULL << square) ^ (1ULL << board.en_passant_square())) | (1ULL << target);
                 if (!(AttackTables::bishop_attacks(king_square, aftermove_occupancy) & (board.get_bishops(!board.white_turn()) | board.get_queens(!board.white_turn()))) && 
-                    !(AttackTables::rook_attacks(king_square, aftermove_occupancy) & (board.get_rooks(!board.white_turn()) | board.get_queens(!board.white_turn())))) {
+                    !(AttackTables::rook_attacks(king_square, aftermove_occupancy)   & (board.get_rooks(!board.white_turn())   | board.get_queens(!board.white_turn())))) {
                     list.add(move);
                 }
                 continue;
@@ -120,13 +120,13 @@ void MoveGen::generate_moves(const Board& board, MoveList& list) {
                 if (board.white_turn()) {
                     list.add(Move{square, target, W_KNIGHT, false, false, moving_piece, target_piece});
                     list.add(Move{square, target, W_BISHOP, false, false, moving_piece, target_piece});
-                    list.add(Move{square, target, W_ROOK, false, false, moving_piece, target_piece});
-                    list.add(Move{square, target, W_QUEEN, false, false, moving_piece, target_piece});
+                    list.add(Move{square, target, W_ROOK,   false, false, moving_piece, target_piece});
+                    list.add(Move{square, target, W_QUEEN,  false, false, moving_piece, target_piece});
                 } else {
                     list.add(Move{square, target, B_KNIGHT, false, false, moving_piece, target_piece});
                     list.add(Move{square, target, B_BISHOP, false, false, moving_piece, target_piece});
-                    list.add(Move{square, target, B_ROOK, false, false, moving_piece, target_piece});
-                    list.add(Move{square, target, B_QUEEN, false, false, moving_piece, target_piece});
+                    list.add(Move{square, target, B_ROOK,   false, false, moving_piece, target_piece});
+                    list.add(Move{square, target, B_QUEEN,  false, false, moving_piece, target_piece});
                 }
             } else {
                 list.add(Move{square, target, EMPTY, false, false, moving_piece, target_piece});
@@ -137,11 +137,11 @@ void MoveGen::generate_moves(const Board& board, MoveList& list) {
 
 bool MoveGen::is_square_attacked(const Board& board, int square, bool by_white, uint64_t occupancy) {
     if (AttackTables::bishop_attacks(square, occupancy) & (board.get_bishops(by_white) | board.get_queens(by_white))) return true;
-    if (AttackTables::rook_attacks(square, occupancy) & (board.get_rooks(by_white) | board.get_queens(by_white))) return true;
+    if (AttackTables::rook_attacks(square, occupancy)   & (board.get_rooks(by_white)   | board.get_queens(by_white))) return true;
 
-    if (AttackTables::pawn_attacks(square, !by_white) & board.get_pawns(by_white)) return true;
-    if (AttackTables::knight_attacks(square) & board.get_knights(by_white)) return true;
-    if (AttackTables::king_attacks(square) & board.get_king(by_white)) return true;
+    if (AttackTables::pawn_attacks(square, !by_white)   & board.get_pawns(by_white))   return true;
+    if (AttackTables::knight_attacks(square)            & board.get_knights(by_white)) return true;
+    if (AttackTables::king_attacks(square)              & board.get_king(by_white))    return true;
 
     return false;
 }
@@ -152,7 +152,7 @@ bool MoveGen::can_castle(const Board& board, int king_square, int target, uint64
         Piece rook = board.piece_at(king_square + 3);
         if (rook != W_ROOK && board.white_turn() || rook != B_ROOK && !board.white_turn()) return false;
 
-        if (target == 6 && !(board.castling_rights() & WK)) return false;
+        if (target == 6  && !(board.castling_rights() & WK)) return false;
         if (target == 62 && !(board.castling_rights() & BK)) return false;
 
         uint64_t castling_path = (1ULL << (king_square + 1)) | (1ULL << (king_square + 2));
@@ -163,7 +163,7 @@ bool MoveGen::can_castle(const Board& board, int king_square, int target, uint64
         Piece rook = board.piece_at(king_square - 4);
         if (rook != W_ROOK && board.white_turn() || rook != B_ROOK && !board.white_turn()) return false;
 
-        if (target == 2 && !(board.castling_rights() & WQ)) return false;
+        if (target == 2  && !(board.castling_rights() & WQ)) return false;
         if (target == 58 && !(board.castling_rights() & BQ)) return false;
         
         uint64_t castling_path = (1ULL << (king_square - 1)) | (1ULL << (king_square - 2)) | (1ULL << (king_square - 3));
@@ -178,10 +178,10 @@ uint64_t MoveGen::get_checkers(const Board& board, uint64_t occupancy) {
     int king_square = board.king_square(board.white_turn());
     uint64_t checkers = 0;
 
-    checkers |= AttackTables::bishop_attacks(king_square, occupancy) & (board.get_bishops(!board.white_turn()) | board.get_queens(!board.white_turn()));
-    checkers |= AttackTables::rook_attacks(king_square, occupancy) & (board.get_rooks(!board.white_turn()) | board.get_queens(!board.white_turn()));
+    checkers |= AttackTables::bishop_attacks(king_square, occupancy)        & (board.get_bishops(!board.white_turn()) | board.get_queens(!board.white_turn()));
+    checkers |= AttackTables::rook_attacks(king_square, occupancy)          & (board.get_rooks(!board.white_turn())   | board.get_queens(!board.white_turn()));
     checkers |= AttackTables::pawn_attacks(king_square, board.white_turn()) & board.get_pawns(!board.white_turn());
-    checkers |= AttackTables::knight_attacks(king_square) & board.get_knights(!board.white_turn());
+    checkers |= AttackTables::knight_attacks(king_square)                   & board.get_knights(!board.white_turn());
 
     return checkers;
 }
@@ -198,7 +198,7 @@ uint64_t MoveGen::get_pinned(const Board& board, uint64_t occupancy) {
     uint64_t rook_attacks_without_blockers = AttackTables::rook_attacks(king_square, occupancy ^ rook_blockers_on_ray);
 
     uint64_t pinners = (bishop_attacks ^ bishop_attacks_without_blockers) & (board.get_bishops(!board.white_turn()) | board.get_queens(!board.white_turn())) |
-                        (rook_attacks ^ rook_attacks_without_blockers) & (board.get_rooks(!board.white_turn()) | board.get_queens(!board.white_turn()));
+                       (rook_attacks   ^ rook_attacks_without_blockers)   & (board.get_rooks(!board.white_turn())   | board.get_queens(!board.white_turn()));
 
     uint64_t pinned = 0;
     while (pinners) {
