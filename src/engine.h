@@ -20,7 +20,7 @@ class Engine {
     std::chrono::steady_clock::time_point start_;
     int allocated_time_ = 0;
     bool stop_ = false;
-    int nodes_ = 0;
+    unsigned long long nodes_ = 0;
     uint8_t generation_ = 0;
 
 public:
@@ -33,9 +33,12 @@ public:
 private:
     int search(Board& board, int depth, int ply, int alpha, int beta);
     int quiescence(Board& board, int alpha, int beta);
-    int evaluate(const Board& board) const;
+
     void order_moves(MoveList& list, Move tt_move) const;
+
+    int evaluate(const Board& board) const;
     bool is_endspiel(const Board& board) const;
+
     int calculate_time(const SearchParameters& sp, bool white) const;
     int elapsed_ms() const;
 

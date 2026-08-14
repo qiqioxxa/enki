@@ -260,6 +260,7 @@ Move Engine::choose_move(Board& board, const SearchParameters& sp) {
 // PRIVATE
 
 int Engine::search(Board& board, int depth, int ply, int alpha, int beta) {
+    // mate distance pruning
     alpha = std::max(alpha, -CHECKMATE + ply);
     beta = std::min(beta, CHECKMATE - ply - 1);
     if (alpha >= beta) return alpha;
@@ -372,42 +373,81 @@ int Engine::search(Board& board, int depth, int ply, int alpha, int beta) {
 
     return best_score;
 }
-
 int Engine::quiescence(Board& board, int alpha, int beta) {
-    int stand_pat = evaluate(board);
-    if (stand_pat >= beta) return stand_pat;
-    if (stand_pat > alpha) alpha = stand_pat;
+    if ((nodes_++ & 4095) == 0) {
+        if (elapsed_ms() >= allocated_time_) stop_ = true;
+    }
+    if (stop_) return 0;
+
+    bool in_check = MoveGen::king_in_check(board);
+    int stand_pat = -CHECKMATE;
+    int best_score = -CHECKMATE * 2;
+
+    if (!in_check) {
+        stand_pat = evaluate(board);
+        if (stand_pat >= beta) return stand_pat;
+        if (stand_pat > alpha) alpha = stand_pat;
+        best_score = stand_pat;
+    }
 
     MoveList list;
     MoveGen::generate_moves(board, list);
 
-    if (list.size == 0) return alpha;
-
-    if (!MoveGen::king_in_check(board)) {
+    if (!in_check) {
         int captures = 0;
-        for (int i = 0; i < list.size; ++i) {
-            if (list[i].target_piece() != EMPTY) {
+        for (int i = 0; i < list.size; i++) {
+            if (list[i].target_piece() != EMPTY || list[i].promotion() != EMPTY) {
                 list[captures++] = list[i];
             }
         }
         list.size = captures;
     }
 
+    if (list.size == 0) {
+        return in_check ? -CHECKMATE : best_score;
+    }
+
     order_moves(list, Move{});
 
     for (Move move : list) {
-        int victim_val = std::abs(piece_value[move.target_piece()]);
-        if (stand_pat + victim_val + 200 < alpha) continue; // delta pruning
+        if (!in_check) {
+            int victim_value = std::abs(piece_value[move.target_piece()]);
+            int promo_value = (move.promotion() != EMPTY ? std::abs(piece_value[move.promotion()]) - piece_value[W_PAWN] : 0);
+            if (stand_pat + victim_value + promo_value + 200 < alpha) continue; // delta pruning
+        }
 
         UnmakeInfo info = board.make_move(move);
         int score = -quiescence(board, -beta, -alpha);
         board.unmake_move(move, info);
 
-        if (score >= beta) return score;
-        if (score > alpha) alpha = score;
+        if (score > best_score) {
+            best_score = score;
+        }
+        if (score > alpha) {
+            alpha = score;
+        }
+        if (score >= beta) {
+            return score;
+        }
     }
 
-    return alpha;
+    return best_score;
+}
+
+void Engine::order_moves(MoveList& list, Move tt_move) const {
+    int shift = 0;
+    if (!tt_move.is_null_move()) {
+        for (int i = 0; i < list.size; i++) {
+            if (list[i] == tt_move) {
+                std::swap(list[0], list[i]);
+                shift = 1;
+                break;
+            }
+        }
+    }
+    std::sort(list.begin() + shift, list.end(), [](Move move1, Move move2) {
+        return MVV_LVA[move1.target_piece()][move1.moving_piece()] > MVV_LVA[move2.target_piece()][move2.moving_piece()]; 
+    });
 }
 
 int Engine::evaluate(const Board& board) const {
@@ -434,23 +474,6 @@ int Engine::evaluate(const Board& board) const {
 
     return board.white_turn() ? score : -score;
 }
-
-void Engine::order_moves(MoveList& list, Move tt_move) const {
-    int shift = 0;
-    if (!tt_move.is_null_move()) {
-        for (int i = 0; i < list.size; i++) {
-            if (list[i] == tt_move) {
-                std::swap(list[0], list[i]);
-                shift = 1;
-                break;
-            }
-        }
-    }
-    std::sort(list.begin() + shift, list.end(), [](Move move1, Move move2) {
-        return MVV_LVA[move1.target_piece()][move1.moving_piece()] > MVV_LVA[move2.target_piece()][move2.moving_piece()]; 
-    });
-}
-
 bool Engine::is_endspiel(const Board& board) const {
     return std::popcount(board.get_occupancy()) < 10;
 }
@@ -463,7 +486,6 @@ int Engine::calculate_time(const SearchParameters& sp, bool white) const {
     int moves_left = sp.movestogo != 0 ? sp.movestogo : 30;
     return time / moves_left + inc * 0.8;
 }
-
 int Engine::elapsed_ms() const {
     return std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now() - start_).count();
@@ -471,7 +493,7 @@ int Engine::elapsed_ms() const {
 
 void Engine::print_info(int depth, int best_score, Board& board) const {
     int time = elapsed_ms();
-    int nps = time != 0 ? nodes_ / time * 1000 : 0;
+    int nps = time != 0 ? nodes_ * 1000 / time : 0;
     
     std::string score_str;
     if (std::abs(best_score) >= CHECKMATE - MAX_DEPTH) {
