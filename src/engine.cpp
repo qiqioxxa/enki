@@ -208,7 +208,7 @@ Move Engine::choose_move(Board& board, const SearchParameters& sp) {
     int delta = 50;
 
     int depth = 1;
-    int max_depth = sp.depth != 0 ? sp.depth : MAX_DEPTH;
+    int max_depth = sp.depth ? sp.depth : MAX_DEPTH;
 
     // iterative deepening
     for (; depth <= max_depth; depth++) {
@@ -270,7 +270,7 @@ int Engine::search(Board& board, int depth, int ply, int alpha, int beta) {
     }
     if (stop_) return 0;
 
-    if (board.halfmove_clock() >= 100 || ply > 0 && board.is_repetition() || board.is_insufficient_material()) return DRAW;
+    if (board.halfmove_clock() >= 100 || (ply > 0 && board.is_repetition()) || board.is_insufficient_material()) return DRAW;
 
     const TTentry* entry = tt_.probe(board.zobrist_key());
     if (entry && entry->key == board.zobrist_key() && entry->depth >= depth) {
@@ -281,36 +281,38 @@ int Engine::search(Board& board, int depth, int ply, int alpha, int beta) {
         if (entry->flag == TTentry::UPPERBOUND && tt_score <= alpha) return tt_score;
     }
 
-    int static_eval = evaluate(board);
-    bool in_check = MoveGen::king_in_check(board);
-
-    // null-move pruning
-    if (depth >= 3 && static_eval >= beta && !in_check) {
-        bool turn = board.white_turn();
-        if ((board.get_knights(turn) | board.get_bishops(turn) | board.get_rooks(turn) | board.get_queens(turn)) != 0) {
-            UnmakeInfo info = board.make_null_move();
-            int score = -search(board, depth - 3, ply + 1, -beta, -beta + 1);
-            board.unmake_null_move(info);
-
-            if (score >= beta) return score;
-        }
-    }
-
-    // static null-move pruning (aka reverse futility pruning)
-    if (depth <= 2 && !in_check) {
-        int margin = 100 * depth;
-        if (static_eval - margin >= beta) {
-            return static_eval - margin;
-        }
-    }
-
     if (depth == 0) return quiescence(board, alpha, beta);
+
+    bool in_check = MoveGen::king_in_check(board);
+    if (!in_check) {
+        int static_eval = evaluate(board);
+        
+        // null-move pruning
+        if (depth >= 3 && static_eval >= beta) {
+            bool turn = board.white_turn();
+            if ((board.get_knights(turn) | board.get_bishops(turn) | board.get_rooks(turn) | board.get_queens(turn)) != 0) {
+                UnmakeInfo info = board.make_null_move();
+                int score = -search(board, depth - 3, ply + 1, -beta, -beta + 1);
+                board.unmake_null_move(info);
+
+                if (score >= beta) return score;
+            }
+        }
+
+        // static null-move pruning (aka reverse futility pruning)
+        if (depth <= 2) {
+            int margin = 100 * depth;
+            if (static_eval - margin >= beta) {
+                return static_eval - margin;
+            }
+        }
+    }
 
     MoveList list;
     MoveGen::generate_moves(board, list);
 
     if (list.size == 0) {
-        int score = MoveGen::king_in_check(board) ? -CHECKMATE + ply : DRAW;
+        int score = in_check ? (-CHECKMATE + ply) : DRAW;
         tt_.record(board.zobrist_key(), Move{}, score_to_tt(score, ply), depth, TTentry::EXACT, generation_);
         return score;
     }
@@ -326,8 +328,7 @@ int Engine::search(Board& board, int depth, int ply, int alpha, int beta) {
         Move move = list[i];
 
         UnmakeInfo info = board.make_move(move);
-
-        bool gives_check = MoveGen::king_in_check(board);
+        
         int score;
 
         // principal variation search
@@ -336,9 +337,13 @@ int Engine::search(Board& board, int depth, int ply, int alpha, int beta) {
             
         } else {
             // late move depth reduction + zero window
-            int reduction = (i > 3 && depth >= 3 && !in_check && !gives_check && 
-                            move.target_piece() == EMPTY && move.promotion() == EMPTY
-                            ? std::min(LMR_table[std::min(depth, 63)][std::min(i, 63)], depth - 1) : 0);
+            int reduction = 0;
+            if (i > 3 && depth >= 3 && !in_check && move.target_piece() == EMPTY && move.promotion() == EMPTY) {
+                bool gives_check = MoveGen::king_in_check(board);
+                if (!gives_check) {
+                    reduction = std::min(LMR_table[std::min(depth, 63)][std::min(i, 63)], depth - 1);
+                }
+            }
 
             score = -search(board, depth - 1 - reduction, ply + 1, -alpha - 1, -alpha);
 
@@ -412,7 +417,7 @@ int Engine::quiescence(Board& board, int alpha, int beta) {
     for (Move move : list) {
         if (!in_check) {
             int victim_value = std::abs(piece_value[move.target_piece()]);
-            int promo_value = (move.promotion() != EMPTY ? std::abs(piece_value[move.promotion()]) - piece_value[W_PAWN] : 0);
+            int promo_value = (move.promotion() != EMPTY) ? (std::abs(piece_value[move.promotion()]) - piece_value[W_PAWN]) : 0;
             if (stand_pat + victim_value + promo_value + 200 < alpha) continue; // delta pruning
         }
 
@@ -483,7 +488,7 @@ int Engine::calculate_time(const SearchParameters& sp, bool white) const {
     if (sp.infinite || sp.depth != 0) return INT_MAX;
     int time = white ? sp.wtime : sp.btime;
     int inc = white ? sp.winc : sp.binc;
-    int moves_left = sp.movestogo != 0 ? sp.movestogo : 30;
+    int moves_left = sp.movestogo ? sp.movestogo : 30;
     return time / moves_left + inc * 0.8;
 }
 int Engine::elapsed_ms() const {
@@ -493,7 +498,7 @@ int Engine::elapsed_ms() const {
 
 void Engine::print_info(int depth, int best_score, Board& board) const {
     int time = elapsed_ms();
-    int nps = time != 0 ? nodes_ * 1000 / time : 0;
+    int nps = (time != 0) ? (nodes_ * 1000 / time) : 0;
     
     std::string score_str;
     if (std::abs(best_score) >= CHECKMATE - MAX_DEPTH) {
