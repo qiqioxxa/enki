@@ -1,15 +1,21 @@
 ifeq ($(OS), Windows_NT)
-    EXT ?= .exe
-endif
-
-ifeq ($(shell uname -s), Darwin)
-	CXX       ?= clang++
-	IS_DARWIN := 1
+	SHELL   := cmd.exe
+    EXT     ?= .exe
+	LDFLAGS ?= -static -s
+	LDLIBS   ?= -lstdc++exp
+	MKDIR   := mkdir
+    RM      := if exist build rmdir /s /q
 else
-	CXX    ?= g++
-	LDLIBS ?= -lstdc++exp
+	MKDIR := mkdir -p
+    RM    := rm -rf
+
+	ifeq ($(shell uname -s), Darwin)
+		CXX       ?= clang++
+		IS_DARWIN := 1
+	endif
 endif
 
+CXX      ?= g++
 CXXFLAGS ?= -std=c++23 -O3
 
 SRCDIR   := src
@@ -26,7 +32,7 @@ OUT     := $(BUILDDIR)/$(TARGET)$(EXT)
 all: $(OUT)
 
 $(OUT): $(OBJECTS) | $(BUILDDIR)
-		$(CXX) $(CXXFLAGS) $(OBJECTS) -o $@ $(LDLIBS)
+		$(CXX) $(CXXFLAGS) $(OBJECTS) -o $@ $(LDFLAGS) $(LDLIBS)
 
 $(BUILDDIR)/%.o: $(SRCDIR)/%.cpp | $(BUILDDIR)
 		$(CXX) $(CXXFLAGS) -MMD -MP -c $< -o $@
@@ -37,9 +43,9 @@ profiling: $(SOURCES) | $(BUILDDIR)
 endif
 
 $(BUILDDIR):
-		mkdir -p $@
+		$(MKDIR) $@
 
 clean:
-		rm -rf $(BUILDDIR)
+		$(RM) $(BUILDDIR)
 
 -include $(DEPENDS)
